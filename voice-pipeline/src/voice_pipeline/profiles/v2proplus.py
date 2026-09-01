@@ -1,0 +1,23 @@
+from .base import ModelProfile
+
+V2PROPLUS = ModelProfile(
+    name="v2ProPlus",
+    sample_rate=32000,
+    semantic_frame_rate="25hz",
+    requires_sv=True,
+    s1_relative_path="models/pretrained/v2proplus/s1/s1v3.ckpt",
+    s2g_relative_path="models/pretrained/v2proplus/s2/s2Gv2ProPlus.pth",
+    s2d_relative_path="models/pretrained/v2proplus/s2/s2Dv2ProPlus.pth",
+    bert_relative_path="models/pretrained/v2proplus/bert/chinese-roberta-wwm-ext-large",
+    hubert_relative_path="models/pretrained/v2proplus/hubert/chinese-hubert-base",
+    speaker_relative_path="models/pretrained/v2proplus/speaker/pretrained_eres2netv2w24s4ep4.ckpt",
+    s2_family="v2_pro",
+    s2_train_entry="s2_train.py",
+    generator_class="SynthesizerTrn",
+    discriminator_class="MultiPeriodDiscriminator",
+    uses_sv_embedding=True,
+    uses_gan_training=True,
+    uses_cfm_training=False,
+    uses_external_vocoder=False,
+    text_low_lr_rate=0.4,
+)
