@@ -122,3 +122,25 @@ strict load into `Text2SemanticDecoder`.
 
 Optimizer, scheduler, dataset, trainer, ONNX, and V3/V4 code are intentionally
 excluded from this migration slice.
+
+## v2ProPlus S2 core
+
+Sources from the pinned revision:
+
+- `GPT_SoVITS/module/models.py`
+- `GPT_SoVITS/module/{attentions,commons,modules,mrte_model}.py`
+- `GPT_SoVITS/module/{quantize,core_vq,distrib,ddp_utils,transforms}.py`
+- `GPT_SoVITS/module/{losses,mel_processing}.py`
+
+The internal `s2_v2proplus/model.py` contains only the `TextEncoder`, residual
+flow/posterior, waveform generator, multi-period discriminator, and
+`SynthesizerTrn` ranges required by v2ProPlus. The upstream CFM, F5-TTS,
+`SynthesizerTrnV3`, V3/V4 and external-vocoder code is not imported.
+
+Package imports are relative. The V2 text embedding retains the official 732-row
+checkpoint shape as `V2PROPLUS_SYMBOL_COUNT`; the shared ZH/JA/EN frontend still
+emits the unchanged 324-ID prefix, while the unused Korean/Cantonese tail rows
+remain loadable for strict checkpoint compatibility.
+
+`compatibility/s2_checkpoint.py` constructs the profile-specific G or D model,
+forces the `v2ProPlus` route, and strictly loads the official state dict.
