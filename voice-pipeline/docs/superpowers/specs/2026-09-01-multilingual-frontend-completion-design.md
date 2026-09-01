@@ -21,14 +21,14 @@ speaker-similarity and pronunciation constraints.
 
 ## Supported contract
 
-The public result is immutable and contains:
+The public result container contains:
 
 ```python
 FrontendResult(
     normalized_text: str,
     phones: list[str],
     phone_ids: list[int],
-    word2ph: list[int],
+    word2ph: list[int] | None,
     bert_features: torch.Tensor,
 )
 ```
@@ -36,6 +36,11 @@ FrontendResult(
 `MultilingualFrontend.process(text, language)` accepts `zh`, `ja`, `en`, and
 `mixed`. All outputs use the existing v2ProPlus ZH/JA/EN symbol prefix. The BERT
 tensor has shape `(1024, phone_count)`.
+
+`word2ph` is populated only for a pure Chinese result because upstream uses it
+to expand character-level Chinese BERT features to phones. Japanese, English,
+and mixed results expose `None`; their final BERT tensors are already aligned
+to phone columns.
 
 Chinese and English text must never be passed through Japanese normalization or
 G2P merely because the source speaker or training corpus is Japanese.
@@ -50,6 +55,7 @@ read the external GPT-SoVITS checkout.
   files
 - English POS data: NLTK `averaged_perceptron_tagger_eng`
 - Japanese runtime: installed `pyopenjtalk` and its base dictionary
+- Mixed-language detection: `fast_langdetect/lid.176.bin`
 
 The G2PW model and NLTK data are already present under the ignored project
 model store. Existing RoBERTa weights may remain in the user's current
@@ -84,7 +90,9 @@ phones receive an all-zero `(1024, phone_count)` BERT tensor, matching upstream.
 Segment only ZH/JA/EN spans. Each span goes through its language frontend, then
 phones, IDs, normalized text, and BERT columns are concatenated in source order.
 Unsupported detected languages fail clearly instead of being routed through a
-different language.
+different language. The combined result has `word2ph=None`; Chinese span
+alignment is consumed before concatenation. The detector model path is explicit;
+the frontend must not let `fast_langdetect` choose or download a global cache.
 
 ### BERT alignment
 
