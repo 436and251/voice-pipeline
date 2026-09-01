@@ -99,3 +99,26 @@ a future refactor cannot silently route v2ProPlus into the wrong architecture fa
 - S2 one-batch orchestration preserves discriminator-before-generator order and AMP
   `unscale -> clip -> step` boundaries; one completed D+G batch counts as one S2 step.
 - SoVITS checkpoints use the upstream `06` two-byte header around the torch archive.
+
+## S1 text-to-semantic core
+
+Sources from the pinned revision:
+
+- `GPT_SoVITS/AR/models/t2s_model.py`
+- `GPT_SoVITS/AR/models/utils.py`
+- `GPT_SoVITS/AR/modules/embedding.py`
+- `GPT_SoVITS/AR/modules/transformer.py`
+- `GPT_SoVITS/AR/modules/activation.py`
+- `GPT_SoVITS/AR/modules/patched_mha_with_cache.py`
+- `GPT_SoVITS/AR/modules/scaling.py`
+
+The files are vendored under `core/gpt_sovits/s1/`. Algorithm and model
+definitions are unchanged; the upstream top-level `AR.*` imports are converted
+to package-relative imports, three trailing spaces are removed, and one inactive
+commented-out `activation_relu_or_gelu` block is omitted.
+`compatibility/s1_checkpoint.py` removes
+the upstream Lightning wrapper's `model.` state-dict prefix and then performs a
+strict load into `Text2SemanticDecoder`.
+
+Optimizer, scheduler, dataset, trainer, ONNX, and V3/V4 code are intentionally
+excluded from this migration slice.
