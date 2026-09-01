@@ -144,3 +144,26 @@ remain loadable for strict checkpoint compatibility.
 
 `compatibility/s2_checkpoint.py` constructs the profile-specific G or D model,
 forces the `v2ProPlus` route, and strictly loads the official state dict.
+
+## v2ProPlus feature extractors
+
+Sources from the pinned revision:
+
+- `GPT_SoVITS/feature_extractor/cnhubert.py`
+- `GPT_SoVITS/eres2net/ERes2NetV2.py`
+- `GPT_SoVITS/eres2net/fusion.py`
+- `GPT_SoVITS/eres2net/kaldi.py`
+- `GPT_SoVITS/prepare_datasets/2-get-sv.py`
+- `tools/my_utils.py`
+
+`features/cnhubert.py` preserves the local-only Transformers HuBERT loading and
+returns upstream content layout `(batch, 768, frames)`. `features/audio.py`
+uses the same ffmpeg mono float32 decode and 32 kHz resampling contract without
+the unrelated WebUI helpers from `tools/my_utils.py`.
+
+`features/speaker.py` adapts only the ERes2NetV2/AFF layers required by the
+official v2ProPlus `forward3()` speaker vector path. It strictly loads the
+official checkpoint and preserves `32k -> 16k -> 80-bin Kaldi fbank ->
+(batch, 20480)`. The copied Kaldi implementation is omitted because the
+installed `torchaudio.compliance.kaldi.fbank` produced bit-identical output for
+the same input and arguments.
