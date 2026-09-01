@@ -23,3 +23,21 @@ def test_merge_helpers_match_upstream():
     assert t._merge_bu([("不", "d"), ("怕", "v")]) == [("不怕", "v")]
     assert t._merge_yi([("听", "v"), ("一", "m"), ("听", "v")]) == [["听一听", "v"]]
     assert t._merge_er([("小院", "n"), ("儿", "n")]) == [["小院儿", "n"]]
+
+
+def test_full_tone_modifier_exposes_upstream_production_entrypoints():
+    tone = ToneSandhi()
+
+    merged = tone.pre_merge_for_modify([("不", "d"), ("怕", "v")])
+    finals = tone.modified_tone("不怕", "v", ["u4", "a4"])
+
+    assert merged == [("不怕", "v")]
+    assert finals == ["u2", "a4"]
+
+
+def test_continuous_third_tones_merge_before_modification():
+    tone = ToneSandhi()
+
+    merged = tone._merge_continuous_three_tones([("你", "r"), ("好", "a"), ("啊", "y")])
+
+    assert merged[0][0] == "你好"
