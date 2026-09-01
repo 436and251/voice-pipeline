@@ -11,6 +11,14 @@ wired correctly until one production frontend produces phones, phone IDs,
 This design completes that prerequisite without adding preprocessing, training,
 inference, CLI, V3/V4, Cantonese, or Korean behavior.
 
+The project-level objective is cross-language speaker identity: a voice trained
+primarily from Japanese recordings must remain recognizably the same speaker
+when synthesizing Chinese and English, not only when synthesizing Japanese.
+This frontend Part supplies correct language-specific phones and aligned BERT
+features for that objective. It does not introduce a new training loss; later
+evaluation and checkpoint selection must enforce worst-language ZH/JA/EN
+speaker-similarity and pronunciation constraints.
+
 ## Supported contract
 
 The public result is immutable and contains:
@@ -28,6 +36,9 @@ FrontendResult(
 `MultilingualFrontend.process(text, language)` accepts `zh`, `ja`, `en`, and
 `mixed`. All outputs use the existing v2ProPlus ZH/JA/EN symbol prefix. The BERT
 tensor has shape `(1024, phone_count)`.
+
+Chinese and English text must never be passed through Japanese normalization or
+G2P merely because the source speaker or training corpus is Japanese.
 
 ## External assets
 
