@@ -174,6 +174,8 @@ class PreprocessPipeline:
         entry: dict[str, object],
         signature: str,
     ) -> bool:
+        if not self.context.config.get("resume", True):
+            return False
         if entry.get("signature") != signature:
             return False
         output_paths = entry.get("output_paths")

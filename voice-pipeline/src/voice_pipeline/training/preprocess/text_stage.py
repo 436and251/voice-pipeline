@@ -32,7 +32,10 @@ class TextStage:
             "profile": context.profile.name,
             "language": record.item.language,
             "text": record.item.text,
-            "assets": dict(context.asset_digests),
+            "assets": {
+                name: context.asset_digests.get(name)
+                for name in ("bert", "g2pw", "nltk", "langdetect")
+            },
         }
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
