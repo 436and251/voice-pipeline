@@ -72,3 +72,15 @@ def test_real_speaker_encoder_matches_forward3_shape() -> None:
     assert embedding.shape == (1, 20_480)
     assert embedding.dtype == torch.float32
     assert embedding.device.type == "cpu"
+
+
+def test_cnhubert_to_float_changes_model_precision() -> None:
+    from voice_pipeline.core.gpt_sovits.features.cnhubert import CNHubertExtractor
+
+    extractor = CNHubertExtractor.__new__(CNHubertExtractor)
+    extractor.model = torch.nn.Linear(2, 2).half()
+    extractor.precision = "fp16"
+    extractor.to_float()
+
+    assert extractor.precision == "fp32"
+    assert next(extractor.model.parameters()).dtype == torch.float32
