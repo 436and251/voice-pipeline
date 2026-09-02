@@ -13,6 +13,10 @@ from .language_segmenter import LanguageSegmenter
 from .symbols import phone_ids
 
 
+def sanitize_frontend_text(text: str) -> str:
+    return text.replace("%", "-").replace("￥", ",")
+
+
 class MultilingualFrontend:
     def __init__(
         self,
@@ -48,6 +52,7 @@ class MultilingualFrontend:
         return torch.zeros((1024, phone_count), dtype=parameter.dtype, device=self.bert.device)
 
     def process(self, text: str, language: str) -> FrontendResult:
+        text = sanitize_frontend_text(text)
         if language not in {"zh", "ja", "en", "mixed"}:
             raise ValueError(f"unsupported language: {language}")
         if not text.strip():
