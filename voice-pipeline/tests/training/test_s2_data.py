@@ -111,6 +111,21 @@ def test_dataset_rejects_missing_artifact(tmp_path: Path) -> None:
         S2Dataset(root)
 
 
+def test_dataset_wraps_corrupt_tensor_with_sample_and_stage(tmp_path: Path) -> None:
+    root = _copy_preprocess(tmp_path)
+    (root / "hubert" / "s2-smoke-01.pt").write_bytes(b"not a torch archive")
+    with pytest.raises(ValueError, match=r"s2-smoke-01.*hubert"):
+        S2Dataset(root)
+
+
+def test_dataset_wraps_truncated_wav_with_sample_and_stage(tmp_path: Path) -> None:
+    root = _copy_preprocess(tmp_path)
+    path = root / "wav32k" / "s2-smoke-01.wav"
+    path.write_bytes(path.read_bytes()[:-1])
+    with pytest.raises(ValueError, match=r"s2-smoke-01.*wav32k"):
+        S2Dataset(root)
+
+
 @pytest.mark.parametrize("phone_ids", [[], [1, "bad"]])
 def test_dataset_rejects_bad_phone_ids(tmp_path: Path, phone_ids: list[object]) -> None:
     root = _copy_preprocess(tmp_path)

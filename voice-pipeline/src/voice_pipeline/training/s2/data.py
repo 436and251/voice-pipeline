@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pickle
 import wave
 
 import torch
@@ -108,9 +109,9 @@ class S2Dataset(Dataset[S2Item]):
         duration = frame_count / sample_rate if sample_rate else 0.0
         if channels != 1 or sample_width != 2 or sample_rate != 32000 or not 0.6 < duration < 54.0:
             raise ValueError(f"{sample_id} has invalid wav32k format or duration")
-        samples = torch.frombuffer(bytearray(payload), dtype=torch.int16).to(torch.float32) / 32768.0
-        if samples.numel() != frame_count:
+        if len(payload) != frame_count * channels * sample_width:
             raise ValueError(f"{sample_id} has truncated wav32k payload")
+        samples = torch.frombuffer(bytearray(payload), dtype=torch.int16).to(torch.float32) / 32768.0
         wav = samples.unsqueeze(0)
         spec = spectrogram_torch(wav, 2048, 32000, 640, 2048, center=False).squeeze(0)
         return wav, spec
@@ -119,7 +120,7 @@ class S2Dataset(Dataset[S2Item]):
         path = self.preprocess_dir / directory / f"{sample_id}.pt"
         try:
             value = torch.load(path, map_location="cpu", weights_only=True)
-        except (OSError, RuntimeError, TypeError, ValueError) as error:
+        except (OSError, pickle.UnpicklingError, RuntimeError, TypeError, ValueError) as error:
             raise ValueError(f"{sample_id} has invalid {directory} artifact: {error}") from error
         if not isinstance(value, torch.Tensor):
             raise ValueError(f"{sample_id} has invalid {directory} artifact")

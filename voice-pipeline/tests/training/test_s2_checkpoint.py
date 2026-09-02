@@ -137,5 +137,20 @@ def test_checkpoint_loads_models_strictly(tmp_path: Path) -> None:
     payload = torch.load(path, map_location="cpu", weights_only=False)
     payload["net_g"]["weight"] = torch.zeros(3, 3)
     torch.save(payload, path)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError, match="net_g"):
         _load(path, objects)
+
+
+def test_late_checkpoint_corruption_does_not_partially_mutate_models(tmp_path: Path) -> None:
+    objects = _objects()
+    path = checkpoint_path(tmp_path, 1)
+    _save(path, objects)
+    expected_g = {name: value.clone() for name, value in objects[0].state_dict().items()}
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    payload["net_g"] = {name: value + 1 for name, value in payload["net_g"].items()}
+    payload["net_d"]["weight"] = torch.zeros(3, 3)
+    torch.save(payload, path)
+
+    with pytest.raises((ValueError, RuntimeError)):
+        _load(path, objects)
+    assert all(torch.equal(value, objects[0].state_dict()[name]) for name, value in expected_g.items())

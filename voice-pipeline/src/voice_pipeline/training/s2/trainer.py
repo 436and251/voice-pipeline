@@ -79,6 +79,7 @@ class S2Trainer:
             num_workers=config.num_workers,
             collate_fn=S2Collate(),
             pin_memory=device.type == "cuda",
+            generator=torch.Generator().manual_seed(config.seed),
         )
         cursor = TrainingCursor()
         if resume_from is not None:
@@ -130,6 +131,7 @@ class S2Trainer:
                     config=self.config,
                 )
                 global_step = self.cursor.global_step + 1
+                learning_rate = float(self.optim_g.param_groups[0]["lr"])
                 if batch_index + 1 == batch_count:
                     self.scheduler_g.step()
                     self.scheduler_d.step()
@@ -137,7 +139,7 @@ class S2Trainer:
                 else:
                     self.cursor = TrainingCursor(global_step, self.cursor.epoch, batch_index + 1)
                 metrics = asdict(result)
-                metrics["learning_rate"] = float(self.optim_g.param_groups[0]["lr"])
+                metrics["learning_rate"] = learning_rate
                 self.logger.log(
                     "s2",
                     "batch",

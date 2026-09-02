@@ -95,6 +95,15 @@ def test_from_pretrained_validates_before_loading(tmp_path: Path, monkeypatch) -
     assert len(calls) == 2
 
 
+def test_dataloader_iteration_does_not_advance_model_rng(tmp_path: Path, monkeypatch) -> None:
+    calls: list = []
+    _patch_construction(monkeypatch, calls)
+    trainer = S2Trainer.from_pretrained(_config(tmp_path))
+    before = torch.random.get_rng_state()
+    next(iter(trainer.loader))
+    assert torch.equal(torch.random.get_rng_state(), before)
+
+
 def test_one_step_logs_checkpoints_and_cleans_only_after_success(tmp_path: Path, monkeypatch) -> None:
     calls: list = []
     _patch_construction(monkeypatch, calls)
@@ -141,6 +150,31 @@ def test_resume_skips_saved_batch_and_steps_schedulers_at_epoch_end(tmp_path: Pa
     assert cursor == TrainingCursor(2, 1, 0)
     assert second.scheduler_g.last_epoch == 1
     assert second.scheduler_d.last_epoch == 1
+
+
+def test_epoch_final_batch_logs_lr_used_before_decay(tmp_path: Path, monkeypatch) -> None:
+    calls: list = []
+    _patch_construction(monkeypatch, calls)
+    monkeypatch.setattr("voice_pipeline.training.s2.trainer.cleanup_after_training", lambda *args: None)
+
+    def step(**kwargs):
+        kwargs["optim_d"].step()
+        kwargs["optim_g"].step()
+        return RESULT
+
+    monkeypatch.setattr("voice_pipeline.training.s2.trainer.train_s2_step", step)
+    log_path = tmp_path / "epoch-events.jsonl"
+    trainer = S2Trainer.from_pretrained(
+        _config(tmp_path, target=2), logger=PipelineLogger(log_path, echo=False)
+    )
+    trainer.train()
+    batch_events = [
+        json.loads(line)
+        for line in log_path.read_text(encoding="utf-8").splitlines()
+        if json.loads(line)["event"] == "batch"
+    ]
+    assert [event["metrics"]["learning_rate"] for event in batch_events] == [1e-4, 1e-4]
+    assert trainer.optim_g.param_groups[0]["lr"] == pytest.approx(1e-4 * trainer.config.lr_decay)
 
 
 def test_step_failure_writes_nothing_and_does_not_clean(tmp_path: Path, monkeypatch) -> None:
