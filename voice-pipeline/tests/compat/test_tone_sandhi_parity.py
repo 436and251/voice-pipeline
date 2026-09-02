@@ -31,7 +31,7 @@ def test_full_tone_modifier_exposes_upstream_production_entrypoints():
     merged = tone.pre_merge_for_modify([("不", "d"), ("怕", "v")])
     finals = tone.modified_tone("不怕", "v", ["u4", "a4"])
 
-    assert merged == [("不怕", "v")]
+    assert merged == [["不怕", "v"]]
     assert finals == ["u2", "a4"]
 
 
