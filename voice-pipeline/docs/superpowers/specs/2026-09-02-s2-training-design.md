@@ -143,6 +143,11 @@ batch:
 7. G: `zero_grad -> scaled backward -> unscale -> clip -> scaler.step`.
 8. Call `scaler.update()` and only then increment `global_step` once.
 
+This follows upstream iteration semantics. If dynamic loss scaling detects an
+overflow, `scaler.step(...)` may skip the underlying optimizer update and lower
+its scale; the completed D+G AMP iteration still advances `global_step`. The
+trainer does not override GradScaler's default initial scale or adaptation.
+
 The total generator loss remains exactly:
 
 ```text

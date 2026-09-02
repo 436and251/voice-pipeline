@@ -483,7 +483,7 @@ runs/
     │   ├── sv/         # <sample>.pt + index.jsonl
     │   └── semantic/   # <sample>.pt + index.jsonl
     ├── training/s1/      # 后续 S1 trainer 使用
-    ├── training/s2/      # 后续 S2 trainer 使用
+    ├── training/s2/      # S2 events 与原子 resume checkpoints
     ├── evaluation/       # 后续 evaluator 使用
     └── export/           # 后续 bundle export 使用
 ```
@@ -493,7 +493,8 @@ runs/
 训练明确成功后，训练入口应调用 `cleanup_after_training(..., True)`：默认只删除
 目标目录内的 `*.tmp` 和已 quarantine 且不在 valid 集合中的已知阶段产物，保留
 所有正式预处理结果。训练失败或中断时传入 `False`，不删除任何缓存。实际训练
-入口会在后续训练阶段接入该生命周期钩子。
+入口会逐阶段接入该生命周期钩子。当前 S2 trainer 已接入：只有达到目标
+iteration 且最终 checkpoint 原子写入成功后才执行清理；异常或中断不清理。
 
 ## 14. State 与 Cache
 
@@ -593,6 +594,15 @@ D backward
 ```text
 1 S2 step ≈ 1 G update + 1 D update
 ```
+
+FP16 保留 PyTorch / 官方脚本的默认动态 `GradScaler`。早期 batch 若探测到梯度
+溢出，scaler 会跳过对应底层 optimizer update 并自动降低 scale；该 batch 仍按
+官方 `global_step` 语义记为一个训练 iteration，不手工固定低 scale。
+
+当前 `voice_pipeline.training.s2.S2Trainer` 已实现数据校验、官方少一帧 HuBERT
+末帧复制、九张量 collate、四组 G AdamW、D/G 更新、epoch scheduler、结构化日志、
+原子 checkpoint、精确 cursor/RNG resume 与成功后缓存清理。CLI/YAML 接线仍由后续
+训练入口任务负责。
 
 ## 17. 第一版不修改 Loss
 

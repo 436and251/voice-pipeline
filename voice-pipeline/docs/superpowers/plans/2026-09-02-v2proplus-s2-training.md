@@ -384,7 +384,7 @@ models/pretrained/v2proplus/s2/s2Gv2ProPlus.pth
 models/pretrained/v2proplus/s2/s2Dv2ProPlus.pth
 ```
 
-Mark it `gpu` in pytest configuration. Require CUDA and the two local assets, build `S2TrainConfig(batch_size=1, target_optimizer_steps=1, checkpoint_every_steps=1)`, copy the fixed preprocess fixture into `tmp_path` because successful cleanup is intentionally mutating, run the real `S2Trainer`, assert step 1, finite logged metrics, an atomic `step-00000001.pt`, no `.tmp`, and successful strict restore into fresh real models/optimizers/schedulers/scaler.
+Mark it `gpu` in pytest configuration. Require CUDA and the two local assets, build `S2TrainConfig(batch_size=1, target_optimizer_steps=1, checkpoint_every_steps=1)`, copy the fixed preprocess fixture into `tmp_path` because successful cleanup is intentionally mutating, run the real `S2Trainer`, assert step 1, finite logged losses, an atomic `step-00000001.pt`, no `.tmp`, and successful strict restore into fresh real models/optimizers/schedulers/scaler. Preserve the default dynamic GradScaler: if the first synthetic batch has non-finite gradient norms, assert that its scale decreased instead of forcing a low initial scale.
 
 The test itself must not synthesize WAVs, tensors, manifests, or text artifacts. A missing fixture is a test failure; GPU/weight absence may skip only this separately marked integration test.
 
@@ -394,7 +394,7 @@ The test itself must not synthesize WAVs, tensors, manifests, or text artifacts.
 & 'D:\Python_program_codes\TTS-Inference\.venv-gpt-sovits\Scripts\python.exe' -m pytest tests/integration/test_s2_gpu_smoke.py -m gpu -q --basetemp .pytest_cache\codex-temp
 ```
 
-Expected on the user's RTX 4060 Laptop GPU: `1 passed`, no skip, one completed D+G optimizer step, and checkpoint restore success. Do not increase the step count.
+Expected on the user's RTX 4060 Laptop GPU: `1 passed`, no skip, one completed D+G AMP iteration, and checkpoint restore success. Do not increase the step count. As upstream does, the iteration counter may advance when GradScaler safely skips an underlying optimizer update during scale discovery.
 
 ### Step 3: Document the exact upstream boundary and current usage
 

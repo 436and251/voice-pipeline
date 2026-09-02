@@ -204,3 +204,30 @@ Successful training may call the conservative cleanup owner to remove `*.tmp` an
 known artifacts belonging to quarantined IDs. Failed or interrupted training removes
 nothing. Valid artifacts, stage indexes, aggregate indexes, state, asset provenance,
 and quarantine reports are retained.
+
+## v2ProPlus S2 training loop
+
+Sources from the pinned revision:
+
+- `GPT_SoVITS/s2_train.py`
+- `GPT_SoVITS/module/data_utils.py`
+
+`training/s2/` preserves the v2ProPlus GAN order: generator forward, detached
+discriminator loss/update, attached discriminator pass, then adversarial,
+feature, mel, KL-SSL, and KL generator loss/update. Generator AdamW keeps the
+three `0.4 * learning_rate` text/MRTE groups and one exhaustive base group;
+discriminator AdamW uses the base learning rate. Both exponential schedulers
+decay once per completed epoch.
+
+The data path preserves `max(2, int(100 / sample_count))`, descending
+spectrogram-length collation, and next-even SSL/spectrogram padding. The normal
+one-frame HuBERT shortfall is repaired with the upstream replicate-right pad;
+larger mismatches fail instead of entering the upstream zero fallback.
+
+The trainer retains the upstream default dynamic GradScaler and its iteration
+semantics: `global_step` advances after `scaler.update()`, even when overflow
+causes GradScaler to skip an underlying optimizer update while lowering its
+scale. The project adds bounded iteration budgets, structured logs, and one
+atomic internal resume archive containing both networks, both optimizers and
+schedulers, scaler, cursor, and RNG state. Export to the user-facing `06`
+checkpoint remains outside this training slice.
