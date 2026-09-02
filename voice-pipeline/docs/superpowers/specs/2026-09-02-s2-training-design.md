@@ -54,6 +54,12 @@ features shaped `(1, 20480)`. A missing, corrupt, mismatched, or non-finite
 artifact is a fail-fast dataset error; the trainer must never substitute zeros
 for a sample already declared valid.
 
+The normal upstream frame boundary is preserved: when HuBERT is exactly one
+frame shorter than the computed spectrogram, its final frame is replicated once
+on the right. Equal lengths are used unchanged; every other temporal mismatch is
+a fail-fast artifact error. This is the official loader's alignment behavior,
+not a bad-sample zero fallback.
+
 Audio is converted to normalized float and its linear spectrogram is computed
 with the migrated `spectrogram_torch(..., center=False)` using the pinned
 v2ProPlus values `filter_length=2048`, `hop_length=640`, `win_length=2048`, and
