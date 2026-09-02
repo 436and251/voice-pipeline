@@ -5,10 +5,16 @@ from pathlib import Path
 
 def _file_digest(path: Path) -> dict[str, object]:
     stat = path.stat()
-    payload: dict[str, object] = {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
-    if stat.st_size <= 4 * 1024 * 1024:
-        payload["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-    return payload
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": str(path),
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "sha256": digest.hexdigest(),
+    }
 
 
 def compute_stage_signature(
