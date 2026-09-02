@@ -1,8 +1,4 @@
-"""Japanese frontend normalization preserved from GPT-SoVITS v2 text frontend.
-
-G2P/prosody extraction is intentionally added in a later compatibility slice;
-this module contains only behavior already covered by parity tests.
-"""
+"""Japanese normalization and Open JTalk G2P preserved from GPT-SoVITS."""
 
 import re
 
