@@ -173,3 +173,34 @@ official checkpoint and preserves `32k -> 16k -> 80-bin Kaldi fbank ->
 (batch, 20480)`. The copied Kaldi implementation is omitted because the
 installed `torchaudio.compliance.kaldi.fbank` produced bit-identical output for
 the same input and arguments.
+
+## v2ProPlus preprocessing pipeline
+
+Sources from the pinned revision:
+
+- `GPT_SoVITS/prepare_datasets/1-get-text.py`
+- `GPT_SoVITS/prepare_datasets/2-get-hubert-wav32k.py`
+- `GPT_SoVITS/prepare_datasets/2-get-sv.py`
+- `GPT_SoVITS/prepare_datasets/3-get-semantic.py`
+- `tools/my_utils.py`
+
+`training/preprocess/` preserves the official `audio|speaker|language|text` input,
+per-record language routing, 32 kHz decode, `maxx=0.95`/`alpha=0.5` amplitude
+mix, CN-HuBERT content layout, ERes2NetV2 `forward3()` speaker path, and 25 Hz
+semantic token extraction. HuBERT's float source is regenerated from the original
+manifest audio and is never decoded from the quantized int16 wav32 artifact.
+Semantic extraction has only a base-S2G constructor argument and strictly uses
+`s2Gv2ProPlus.pth`; a fine-tuned S2G cannot override training-label generation.
+
+The intentional engineering differences are destination-local atomic files,
+per-sample stage indexes and signatures, resumable cache validation, and one global
+quarantine barrier. Bad manifest rows and sample-stage failures share the allowance
+`min(5, ceil(nonempty_rows * 20%))`; exceeding it or leaving zero valid samples aborts
+publication. A quarantined sample is removed from every stage index and therefore
+cannot enter either aggregate training view. Configuration and model construction
+errors remain fail-fast rather than consuming this sample allowance.
+
+Successful training may call the conservative cleanup owner to remove `*.tmp` and
+known artifacts belonging to quarantined IDs. Failed or interrupted training removes
+nothing. Valid artifacts, stage indexes, aggregate indexes, state, asset provenance,
+and quarantine reports are retained.

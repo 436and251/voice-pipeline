@@ -145,3 +145,10 @@ def test_target_stage_runs_only_its_dependency_closure(tmp_path):
     pipeline = make_pipeline(tmp_path, stages(calls))
     pipeline.run(records(1), [], selected_stage="semantic")
     assert [name for name, _ in calls] == ["wav32k", "hubert", "semantic"]
+
+
+def test_changed_manifest_prunes_stale_samples_from_stage_indexes(tmp_path):
+    pipeline = make_pipeline(tmp_path, stages([]))
+    pipeline.run(records(2), [])
+    pipeline.run(records(1), [])
+    assert "s1" not in read_index_ids(tmp_path)

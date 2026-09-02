@@ -301,8 +301,14 @@ models/
         │   └── chinese-roberta-wwm-ext-large/
         ├── hubert/
         │   └── chinese-hubert-base/
-        └── speaker/
-            └── pretrained_eres2netv2w24s4ep4.ckpt
+        ├── speaker/
+        │   └── pretrained_eres2netv2w24s4ep4.ckpt
+        ├── g2pw/
+        │   └── G2PWModel/
+        ├── g2p/en/
+        │   └── nltk_data/
+        └── langdetect/
+            └── lid.176.bin
 ```
 
 源码不写绝对路径，只通过项目 root + profile relative path 解析。用户默认只配置：
@@ -424,6 +430,24 @@ s2Gv2ProPlus.pth
 
 S1 训练依赖 `text + semantic`；S2 训练依赖 `text + wav32k + hubert + sv`。
 
+当前实现直接读取已有 `data.list`，不重复切片、ASR、改写 speaker 或统一成某个
+语言 frontend。每条记录按自身 `language`（`zh`、`ja`、`en`、`mixed`）处理。
+完整运行命令为：
+
+```powershell
+voice-pipeline preprocess all -c pipeline.yaml
+voice-pipeline preprocess stage semantic -c pipeline.yaml
+```
+
+`stage semantic` 自动执行依赖闭包 `wav32k -> hubert -> semantic`；`stage text`
+只要求 BERT、G2PW、NLTK 与本地语言识别资产。相对的模型路径和 output root
+以启动命令时的项目根目录解析，相对音频路径则以 `data.list` 所在目录解析。
+
+容错上限为 `min(5, ceil(data.list 非空记录数 * 20%))`。坏 manifest 行与任一
+样本阶段失败共用同一个 quarantine 计数；未超限时命令退出码仍为 0，并打印
+坏样本数、上限、有效样本数和 `quarantine.jsonl` 路径。任一阶段失败的样本会
+从所有训练索引中排除；超过上限或没有有效样本时不发布正式训练视图。
+
 ## 12. Stage Contract
 
 每个 Stage 必须定义：stage name、required inputs、optional inputs、generated outputs、config subset、dependency stages、cache signature、invalidation rule、resumability、failure semantics。
@@ -445,30 +469,31 @@ invalidated
 ```text
 runs/
 └── speaker_001/
-    ├── run.yaml
-    ├── metadata.json
-    ├── state.json
-    ├── input/dataset.list
+    ├── input/            # 后续 run 快照预留；原 data.list 不改写
     ├── preprocess/
-    │   ├── text/
-    │   ├── wav32k/
-    │   ├── hubert/
-    │   ├── sv/
-    │   └── semantic/
-    ├── training/
-    │   ├── s1/logs/
-    │   ├── s1/checkpoints/
-    │   ├── s2/logs/
-    │   └── s2/checkpoints/
-    ├── evaluation/
-    │   ├── generated/
-    │   ├── metrics/
-    │   ├── listening/
-    │   └── report.json
-    └── export/model_bundle/
+    │   ├── assets.json
+    │   ├── state.json
+    │   ├── quarantine.jsonl
+    │   ├── valid_samples.jsonl
+    │   ├── 2-name2text.txt
+    │   ├── 6-name2semantic.tsv
+    │   ├── text/       # <sample>.json + <sample>.bert.pt + index.jsonl
+    │   ├── wav32k/     # <sample>.wav + index.jsonl
+    │   ├── hubert/     # <sample>.pt + index.jsonl
+    │   ├── sv/         # <sample>.pt + index.jsonl
+    │   └── semantic/   # <sample>.pt + index.jsonl
+    ├── training/s1/      # 后续 S1 trainer 使用
+    ├── training/s2/      # 后续 S2 trainer 使用
+    ├── evaluation/       # 后续 evaluator 使用
+    └── export/           # 后续 bundle export 使用
 ```
 
 禁止中间产物散落在 TEMP、logs、weights、output 等项目根目录。
+
+训练明确成功后，训练入口应调用 `cleanup_after_training(..., True)`：默认只删除
+目标目录内的 `*.tmp` 和已 quarantine 且不在 valid 集合中的已知阶段产物，保留
+所有正式预处理结果。训练失败或中断时传入 `False`，不删除任何缓存。实际训练
+入口会在后续训练阶段接入该生命周期钩子。
 
 ## 14. State 与 Cache
 

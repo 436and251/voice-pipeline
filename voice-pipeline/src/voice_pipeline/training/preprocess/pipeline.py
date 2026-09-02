@@ -83,6 +83,14 @@ class PreprocessPipeline:
             for issue in initial_issues
         }
         indexes = {name: self._read_index(name) for name in self.stages}
+        active_ids = {record.sample_id for record in records}
+        pruned = False
+        for index in indexes.values():
+            for stale_id in set(index) - active_ids:
+                del index[stale_id]
+                pruned = True
+        if pruned:
+            self._write_indexes(indexes)
         quarantine_path = self.context.preprocess_dir / "quarantine.jsonl"
         valid_path = self.context.preprocess_dir / "valid_samples.jsonl"
         if selected_stage is None:
