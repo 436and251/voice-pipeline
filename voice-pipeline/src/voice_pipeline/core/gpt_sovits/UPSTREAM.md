@@ -22,59 +22,65 @@ symbol set and Japanese `[`/`]` pitch tokens. Korean and Cantonese-only symbols 
 not copied in v0.1 because they are appended after the shared upstream prefix and
 therefore do not change ZH/JA/EN phone IDs.
 
-### Japanese normalization
-
-Source: `GPT_SoVITS/text/japanese.py`.
-
-The first slice preserves `post_replace_ph` and repeated ASCII punctuation
-normalization. The pyopenjtalk G2P/prosody slice is now also migrated and covered by
-dependency-gated parity tests, as documented below.
-
-### Japanese pyopenjtalk G2P/prosody
+### Japanese normalization and pyopenjtalk G2P/prosody
 
 Source: `GPT_SoVITS/text/japanese.py`.
 
 The internal implementation now preserves the upstream full-context-label prosody
 rules (`^`, `$`, `?`, `_`, `[`, `]`, `#`), Japanese mark splitting, percent-symbol
-replacement, and final punctuation post-processing. The logic is exercised by pure
-HTS-label parity tests so it remains testable without a local Open JTalk install.
-When `pyopenjtalk` is installed, additional real-sentence compatibility tests run.
+replacement, repeated-punctuation normalization, and final punctuation
+post-processing. Pure HTS-label parity tests and real pyopenjtalk sentence tests cover
+the implementation. `JapaneseFrontend` normalizes once and returns `word2ph=None`.
 
 Upstream also ships a roughly 17 MB `ja_userdic/userdict.csv`. It is intentionally
 not copied into the Python source package: it is a language resource rather than
-source code. Integration of that optional dictionary into the project asset store is
-deferred to the frontend-resource slice; until then the runtime uses pyopenjtalk's
-base dictionary, matching upstream behavior when its optional user dictionary is not
-available.
+source code. The runtime uses pyopenjtalk's base dictionary, matching upstream
+behavior when its optional user dictionary is unavailable.
 
-### Chinese pure frontend core
+### Chinese G2PW production frontend
 
-Source: `GPT_SoVITS/text/chinese2.py` and `GPT_SoVITS/text/opencpop-strict.txt`.
+Sources from the pinned revision:
 
-This slice preserves punctuation cleanup, consecutive-punctuation collapsing,
-upstream erhua allow/deny behavior, OpenCPOP pinyin-to-phone mapping, and the
-`word2ph` contract. The full 429-entry `opencpop-strict.txt` resource is copied
-unchanged from the pinned revision. Heavy runtime dependencies (`TextNormalizer`,
-`jieba_fast`, `pypinyin`, `ToneSandhi`, and G2PW) are intentionally not introduced
-in this slice; their sentence-level orchestration will be migrated under separate
-parity tests.
+- `GPT_SoVITS/text/chinese2.py`
+- `GPT_SoVITS/text/opencpop-strict.txt`
+- `GPT_SoVITS/text/tone_sandhi.py`
+- `GPT_SoVITS/text/zh_normalization/`
+- `GPT_SoVITS/text/g2pw/`
 
-### Chinese G2PW/jieba orchestration contract
+The internal frontend preserves TextNormalizer cleanup, jieba POS segmentation,
+the complete ToneSandhi merge/modification rules, batched G2PW polyphone inference,
+pronunciation correction, erhua, OpenCPOP mapping, and `word2ph`. The 429-entry
+OpenCPOP map and G2PW polyphonic dictionaries/caches are copied from the pinned
+revision. Real-model tests verify that `重庆。` produces `ch ong2 q ing4`.
 
-Source: `GPT_SoVITS/text/chinese2.py`.
+The G2PW/PaddleSpeech-derived files retain their Apache-2.0 headers. Package imports
+are relative, the tokenizer is local-only, and the upstream ModelScope ZIP downloader
+has been removed. Construction validates every required local G2PW file and raises
+`FileNotFoundError` instead of downloading. The G2PW ONNX directory and Chinese
+RoBERTa model remain external model assets.
 
-The internal Chinese frontend now preserves the high-level sentence/G2PW orchestration
-independently of the heavy runtime packages. Tests pin these upstream-sensitive rules:
-ASCII letters are stripped before G2PW batching, empty stripped segments do not consume
-a batch result, POS=`eng` advances the source-character cursor without emitting phones,
-`correct_pronunciation` is applied before tone modification, erhua is applied after tone
-modification, and final phone/`word2ph` mapping uses the same OpenCPOP path.
+### English G2P and lexical resources
 
-`jieba_fast`, `pypinyin` and G2PW remain runtime dependencies to wire in the production
-frontend. A separate upstream-derived `frontend/tone_sandhi.py` now restores the pure
-`不`/`一`/two-third-tone and merge rules under parity tests. Heavy jieba/pypinyin-dependent
-continuous-third-tone and neutral-tone dictionary behavior is intentionally not claimed
-complete in this baseline; that remains a later frontend integration Part.
+Sources: `GPT_SoVITS/text/english.py`, `GPT_SoVITS/text/en_normalization/expend.py`,
+and the pinned `cmudict*.rep`, `engdict*`, and `namedict_cache.pickle` resources.
+
+The adapter preserves GPT-SoVITS dictionary precedence, name lookup, homograph/POS
+routing, number normalization, OOV prediction, ARPA filtering, and punctuation
+mapping. All five lexical files are byte-identical to the pinned source. CMUdict's
+copyright and redistribution terms remain embedded in `cmudict.rep`.
+`EnglishFrontend` loads the current NLTK English perceptron tagger only from the
+explicit asset directory. It neutralizes `g2p_en`'s obsolete import-time downloader
+and does not require NLTK's duplicate CMU corpus because GPT-SoVITS supplies its own.
+
+### Unified multilingual routing and BERT alignment
+
+`MultilingualFrontend` exposes one ZH/JA/EN/mixed contract. Explicit text language
+always selects its matching frontend; the speaker's Japanese training origin never
+overrides text-language routing. Mixed spans use an explicit local `lid.176.bin`, are
+restricted to ZH/JA/EN, processed independently, and concatenated in source order.
+Only Chinese spans use local RoBERTa features expanded through `word2ph`; Japanese
+and English spans contribute aligned zero BERT columns. Every result validates as
+1024 by final phone count.
 
 
 ## v2ProPlus route contract
