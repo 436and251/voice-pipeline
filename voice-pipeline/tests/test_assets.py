@@ -19,3 +19,6 @@ def test_asset_verification_reports_missing_items(tmp_path: Path):
     assert by_name["bert"].exists is False
     assert by_name["hubert"].exists is False
     assert by_name["speaker"].exists is False
+    assert by_name["g2pw"].path == tmp_path / profile.g2pw_relative_path
+    assert by_name["nltk"].path == tmp_path / profile.nltk_data_relative_path
+    assert by_name["langdetect"].path == tmp_path / profile.langdetect_relative_path

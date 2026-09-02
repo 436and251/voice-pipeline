@@ -13,6 +13,9 @@ class ModelProfile:
     bert_relative_path: str
     hubert_relative_path: str
     speaker_relative_path: str
+    g2pw_relative_path: str
+    nltk_data_relative_path: str
+    langdetect_relative_path: str
     s2_family: str
     s2_train_entry: str
     generator_class: str
