@@ -22,7 +22,7 @@ Task 10 valid preprocessing artifacts
 -> Text2SemanticDecoder.forward_old
 -> four-mini-batch accumulated backward
 -> ScaledAdam update
--> official effective 0.002 scheduler step
+-> official scheduler step, locking subsequent updates to 0.002
 -> atomic internal resume checkpoint
 ```
 
@@ -144,8 +144,10 @@ The optimizer receives the model's complete trainable parameter list and the
 matching names required by its batched-parameter implementation. No extra
 PyTorch gradient clipping is introduced. Although the checkpoint config contains
 warmup and cosine values, the pinned upstream scheduler forces every parameter
-group to learning rate `0.002`; Task 13 preserves that actual behavior rather
-than silently repairing the unused schedule fields.
+group to learning rate `0.002` when it is stepped. Consequently the first
+optimizer update uses ScaledAdam's construction LR `0.01`, and subsequent
+updates use `0.002`. Task 13 preserves that actual behavior rather than silently
+repairing the unused schedule fields.
 
 ## Explicit gradient accumulation and AMP
 
