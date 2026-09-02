@@ -5,12 +5,14 @@
 Task 12 adds a self-contained, single-device S2 training subsystem that consumes
 the validated Task 10 preprocessing artifacts and preserves the pinned
 GPT-SoVITS `s2_train.py` behavior for `v2ProPlus`. Unit tests execute one tiny
-injected D+G update. A separate GPU smoke test dynamically creates five samples
-in the production artifact format and executes one update with the real
+injected D+G update. A separate GPU smoke test uses five committed samples in
+the production artifact format and executes one update with the real
 `s2Gv2ProPlus.pth` and `s2Dv2ProPlus.pth` models.
 
 The implementation targets the user's single NVIDIA RTX 4060 Laptop GPU. It does
-not read or modify the user's real dataset during testing.
+not read or modify the user's real dataset during testing. The five test samples
+are stable repository fixtures; changing the preprocessing contract may require
+an intentional fixture update.
 
 ## Frozen architecture boundary
 
@@ -63,8 +65,8 @@ The dataset preserves the official few-shot repetition rule:
 repeat_count = max(2, int(100 / valid_sample_count))
 ```
 
-The repeated sample list is shuffled deterministically per epoch. This gives a
-five-sample smoke fixture 100 logical entries without committing generated audio.
+The repeated sample list is shuffled deterministically per epoch. The committed
+five-sample smoke fixture therefore provides 100 logical entries.
 
 ## Collation contract
 
@@ -199,11 +201,13 @@ Unit tests cover:
 - atomic checkpoint round-trip and resume cursor/RNG restoration
 - interval/final checkpoint naming and success-only cleanup
 
-The GPU smoke test dynamically creates five deterministic production-format
-samples, constructs the real v2ProPlus G and D from the project model directory,
-uses batch size one to bound VRAM, runs one complete update on CUDA fp16, and checks
-that the resulting checkpoint can be restored. It is explicitly GPU/asset gated
-and remains separate from ordinary unit tests.
+The GPU smoke test reads five fixed production-format samples committed under
+`tests/fixtures/s2_smoke/`, constructs the real v2ProPlus G and D from the project
+model directory, uses batch size one to bound VRAM, runs one complete update on
+CUDA fp16, and checks that the resulting checkpoint can be restored. The fixture
+contains its fixed manifest views, text JSON, 32 kHz WAV, HuBERT tensors, and SV
+tensors; tests never regenerate it. The smoke is explicitly GPU/asset gated and
+remains separate from ordinary unit tests.
 
 ## Acceptance criteria
 
