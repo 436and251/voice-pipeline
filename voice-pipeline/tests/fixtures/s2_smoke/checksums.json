@@ -1,0 +1,90 @@
+{
+  "preprocess/hubert/s2-smoke-01.pt": {
+    "sha256": "4a5c31e7bcc8cd229ed8ed8c008a5d1b9389c55928790424844d03166e359593",
+    "size": 152133
+  },
+  "preprocess/hubert/s2-smoke-02.pt": {
+    "sha256": "e5cd716e4d515b3cca6d989e6bbdfa8e6a01581428c7734ff78343a083208fcc",
+    "size": 152133
+  },
+  "preprocess/hubert/s2-smoke-03.pt": {
+    "sha256": "8c08e3c9fcc06390290e83b93ac01faa256cf0beb92c49a2c12fdfff5819b00c",
+    "size": 152133
+  },
+  "preprocess/hubert/s2-smoke-04.pt": {
+    "sha256": "13610cb5a1bcf3d1c23cd68e1f4bf5a6c1ddb8037f2e206877f2bb3f62f76eaa",
+    "size": 152133
+  },
+  "preprocess/hubert/s2-smoke-05.pt": {
+    "sha256": "632d3c628d99900ff1a191c426bfa6118980f5ee5cf4199769f85604a8669b8f",
+    "size": 152133
+  },
+  "preprocess/quarantine.jsonl": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "preprocess/sv/s2-smoke-01.pt": {
+    "sha256": "bb8cfcbe06a5ea1f111b8063d31991d4c1b0a273fdf02ed4e76c0ffcc07d98ce",
+    "size": 83525
+  },
+  "preprocess/sv/s2-smoke-02.pt": {
+    "sha256": "efade231cdbadd03c1e8d58bc7c157004317ace6f08ce05ffe67522a61eaeb2c",
+    "size": 83525
+  },
+  "preprocess/sv/s2-smoke-03.pt": {
+    "sha256": "4dd38b042bc396de3b3d6ea32f5106d8ea941718c68ede45494e7360bde62c2e",
+    "size": 83525
+  },
+  "preprocess/sv/s2-smoke-04.pt": {
+    "sha256": "113c520dde08e6f25c8fa294038d7c987aba7f14ff8236a2444cd1544aad8340",
+    "size": 83525
+  },
+  "preprocess/sv/s2-smoke-05.pt": {
+    "sha256": "6f2aac6d280825ad6210e037fd42159fdfc00923d6e2483f052ed6af467b66a1",
+    "size": 83525
+  },
+  "preprocess/text/s2-smoke-01.json": {
+    "sha256": "fdb5226bb1e1991d12dd2c8e43f2ce9625f28a317538d233d0b7e6538b9b0ae2",
+    "size": 235
+  },
+  "preprocess/text/s2-smoke-02.json": {
+    "sha256": "c516d78b15f5c76bf16089ecd51f19853cbd7323ae17fb43efd8770dd142f94d",
+    "size": 235
+  },
+  "preprocess/text/s2-smoke-03.json": {
+    "sha256": "1080822eb1ce69147d22d4f32d55f8476ecdea2981c13250c2180f4963a5ec35",
+    "size": 235
+  },
+  "preprocess/text/s2-smoke-04.json": {
+    "sha256": "19103bb34103e0e15e398fe36b5f6496f73ef308a0d0426db270b8e5b0f15546",
+    "size": 235
+  },
+  "preprocess/text/s2-smoke-05.json": {
+    "sha256": "fa5650d5bef1f1f222d0a393f138818f1aba46df68bb04d454a2dc6ffd709848",
+    "size": 235
+  },
+  "preprocess/valid_samples.jsonl": {
+    "sha256": "1c381532f662ba02707709a9d2e2ffb09776284e0b5b742ae0b0b6998e34098c",
+    "size": 820
+  },
+  "preprocess/wav32k/s2-smoke-01.wav": {
+    "sha256": "c5b024cfb66a99eb38c018a0ce874d7b764154d18eaf6cc4e9087fc4bd06277a",
+    "size": 64044
+  },
+  "preprocess/wav32k/s2-smoke-02.wav": {
+    "sha256": "512ec4c9b000938c4da733e94ac0264f2d18db39afa64fb4d44d7cfd93b2a68b",
+    "size": 64044
+  },
+  "preprocess/wav32k/s2-smoke-03.wav": {
+    "sha256": "9a57bd2bcd91c0dad6f0b030ec4e2285e2c9234ae9c1017e5ac1aa932c315cc8",
+    "size": 64044
+  },
+  "preprocess/wav32k/s2-smoke-04.wav": {
+    "sha256": "970f1182a4445956b9a1b6bade593d3e41157f1fd3794d546e68c5b96d68da73",
+    "size": 64044
+  },
+  "preprocess/wav32k/s2-smoke-05.wav": {
+    "sha256": "6ebd6aa112118613d9b6a8868f963ad51250d789d9becfca83078f96c7d816ac",
+    "size": 64044
+  }
+}

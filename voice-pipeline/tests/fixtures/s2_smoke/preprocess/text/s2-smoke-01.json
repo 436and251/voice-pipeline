@@ -1,0 +1,1 @@
+{"bert_dtype":"torch.float32","bert_shape":[1024,8],"language":"ja","normalized_text":"固定S2テスト音声1","phone_ids":[28,17,36,11,35,15,36,18],"phones":["k","o","t","e","s","u","t","o"],"sample_id":"s2-smoke-01","word2ph":null}
