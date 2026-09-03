@@ -146,7 +146,12 @@ def test_explicit_disabled_stage_fails_before_constructing_trainer(tmp_path: Pat
     ("extra", "message"),
     [
         ("dataset: 123\n", "dataset must be a mapping"),
+        ("dataset: {manifest: 123}\n", "dataset.manifest"),
         ("evaluation: {typo: true}\n", "unknown evaluation"),
+        ("evaluation: {reference: {language: ko}}\n", "evaluation.reference.language"),
+        ("objective: {training_languages: [[ja]]}\n", "objective.training_languages"),
+        ("evaluation: {reference: {language: [ja]}}\n", "evaluation.reference.language"),
+        ("evaluation: {suites: {ja: 123}}\n", "evaluation.suites.ja"),
         ("1: value\n", "keys must be strings"),
     ],
 )
@@ -188,3 +193,35 @@ def test_training_cli_converts_nonstring_yaml_key_to_controlled_error(tmp_path: 
     assert result.exit_code == 1
     assert "Error:" in result.output
     assert "keys must be strings" in result.output
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ("precision: fp32", "precision: [fp32]", "precision"),
+        ("profile: {name: v2ProPlus}", "profile: {name: [v2ProPlus]}", "v2ProPlus"),
+        ("learning_rate: 0.0001", f"learning_rate: {10 ** 400}", "learning_rate"),
+    ],
+)
+def test_training_config_normalizes_unhashable_and_overflowing_scalars(
+    tmp_path: Path, old: str, new: str, message: str
+) -> None:
+    path = _write_config(tmp_path)
+    path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        TrainingConfig.from_yaml(path, project_root=tmp_path)
+
+
+def test_training_cli_converts_unhashable_enum_to_controlled_error(tmp_path: Path) -> None:
+    path = _write_config(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("precision: fp32", "precision: [fp32]"),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["train", "all", "-c", str(path), "--project-root", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+    assert "precision" in result.output

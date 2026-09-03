@@ -71,7 +71,7 @@ class TrainingConfig:
         precision = device_data.get("precision")
         if not isinstance(device, str) or not device:
             raise ValueError("device.device must be a non-empty string")
-        if precision not in {"fp16", "fp32"}:
+        if not isinstance(precision, str) or precision not in {"fp16", "fp32"}:
             raise ValueError(f"unsupported precision: {precision}")
 
         s1, s1_resume = _parse_s1(payload.get("s1"), root, output_dir, preprocess_dir, profile, device, precision)
@@ -207,7 +207,10 @@ def _nonnegative(value, field: str) -> int:
 def _number(value, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be a number")
-    value = float(value)
+    try:
+        value = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{field} must be finite") from error
     if not math.isfinite(value):
         raise ValueError(f"{field} must be finite")
     return value
@@ -228,8 +231,7 @@ def _nonnegative_number(value, field: str) -> float:
 
 
 def _path(root: Path, value, field: str) -> Path:
-    if not isinstance(value, (str, Path)):
-        raise ValueError(f"{field} must be a path")
+    _path_value(value, field)
     path = Path(value)
     return path.resolve() if path.is_absolute() else (root / path).resolve()
 
@@ -253,7 +255,7 @@ def _validate_shared_sections(payload: dict) -> None:
 
     dataset = payload.get("dataset")
     if dataset is not None and "manifest" in dataset:
-        _path(Path.cwd(), dataset["manifest"], "dataset.manifest")
+        _path_value(dataset["manifest"], "dataset.manifest")
     preprocess = payload.get("preprocess")
     if preprocess is not None and "resume" in preprocess and not isinstance(preprocess["resume"], bool):
         raise ValueError("preprocess.resume must be boolean")
@@ -262,7 +264,10 @@ def _validate_shared_sections(payload: dict) -> None:
         for field in ("training_languages", "target_languages"):
             if field in objective and (
                 not isinstance(objective[field], list)
-                or any(language not in {"zh", "ja", "en"} for language in objective[field])
+                or any(
+                    not isinstance(language, str) or language not in {"zh", "ja", "en"}
+                    for language in objective[field]
+                )
             ):
                 raise ValueError(f"objective.{field} must contain only zh, ja, or en")
         preservation = objective.get("cross_language_preservation")
@@ -278,6 +283,26 @@ def _validate_shared_sections(payload: dict) -> None:
                 if not isinstance(nested, dict):
                     raise ValueError(f"evaluation.{field} must be a mapping")
                 _reject_unknown(f"evaluation.{field}", nested, allowed)
+        reference = evaluation.get("reference")
+        if reference is not None:
+            if "audio" in reference:
+                _path_value(reference["audio"], "evaluation.reference.audio")
+            if "text" in reference and (not isinstance(reference["text"], str) or not reference["text"].strip()):
+                raise ValueError("evaluation.reference.text must be a non-empty string")
+            if "language" in reference and (
+                not isinstance(reference["language"], str)
+                or reference["language"] not in {"zh", "ja", "en"}
+            ):
+                raise ValueError("evaluation.reference.language must be zh, ja, or en")
+        suites = evaluation.get("suites")
+        if suites is not None:
+            for language, value in suites.items():
+                _path_value(value, f"evaluation.suites.{language}")
+
+
+def _path_value(value, field: str) -> None:
+    if not isinstance(value, (str, Path)) or not str(value).strip():
+        raise ValueError(f"{field} must be a non-empty path")
 
 
 __all__ = ["TrainingConfig"]
