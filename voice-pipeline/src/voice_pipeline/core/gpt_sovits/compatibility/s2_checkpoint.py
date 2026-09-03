@@ -29,7 +29,16 @@ def load_s2_generator(
 ) -> SynthesizerTrn:
     checkpoint = _load_checkpoint(path)
     model = build_s2_generator(checkpoint["config"])
-    model.load_state_dict(checkpoint["weight"], strict=True)
+    try:
+        incompatible = model.load_state_dict(checkpoint["weight"], strict=False)
+    except RuntimeError as error:
+        raise ValueError(f"invalid S2 inference weights: {error}") from error
+    missing = [key for key in incompatible.missing_keys if not key.startswith("enc_q.")]
+    if missing or incompatible.unexpected_keys:
+        raise ValueError(
+            "invalid S2 inference weights: "
+            f"missing={missing}, unexpected={incompatible.unexpected_keys}"
+        )
     return model.to(device)
 
 

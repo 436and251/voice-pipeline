@@ -122,7 +122,14 @@ class _ERes2NetV2(nn.Module):
 
 
 class SpeakerEncoder:
-    def __init__(self, checkpoint_path: str | Path, device: str | torch.device = "cpu") -> None:
+    def __init__(
+        self,
+        checkpoint_path: str | Path,
+        device: str | torch.device = "cpu",
+        precision: str = "fp32",
+    ) -> None:
+        if precision not in {"fp16", "fp32"}:
+            raise ValueError(f"unsupported speaker precision: {precision}")
         path = Path(checkpoint_path)
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -131,6 +138,8 @@ class SpeakerEncoder:
         state = torch.load(path, map_location="cpu", weights_only=False)
         self.model.load_state_dict(state, strict=True)
         self.model.eval().to(self.device)
+        if precision == "fp16":
+            self.model.half()
         self.resample = Resample(32_000, 16_000).to(self.device)
 
     def extract(self, wav_32k: torch.Tensor) -> torch.Tensor:
@@ -139,6 +148,7 @@ class SpeakerEncoder:
             waveform = waveform.unsqueeze(0)
         with torch.inference_mode():
             waveform = self.resample(waveform)
+            waveform = waveform.to(dtype=next(self.model.parameters()).dtype)
             features = torch.stack(
                 [
                     kaldi.fbank(

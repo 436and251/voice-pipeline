@@ -187,6 +187,24 @@ def test_exported_06_checkpoint_loads_through_s2_inference_loader(tmp_path: Path
     assert torch.equal(loaded.weight, model.weight.half())
 
 
+def test_s2_inference_loader_allows_only_missing_enc_q_weights(tmp_path: Path, monkeypatch):
+    class FakeGenerator(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.x = torch.nn.Parameter(torch.zeros(1))
+            self.enc_q = torch.nn.Linear(1, 1)
+
+    path = tmp_path / "s2.pth"
+    save_sovits(path, {"weight": {"x": torch.ones(1)}, "config": {"model": {}}, "info": "inference"})
+    monkeypatch.setattr(s2_checkpoint, "build_s2_generator", lambda config: FakeGenerator())
+    loaded = s2_checkpoint.load_s2_generator(path)
+    assert torch.equal(loaded.x, torch.ones(1))
+
+    save_sovits(path, {"weight": {}, "config": {"model": {}}, "info": "broken"})
+    with pytest.raises(ValueError, match="missing.*x"):
+        s2_checkpoint.load_s2_generator(path)
+
+
 def test_rejects_fp16_overflow_before_publishing(tmp_path: Path):
     base, source, destination = tmp_path / "base.ckpt", tmp_path / "step.pt", tmp_path / "s1.ckpt"
     _s1_base(base, {"model.x": torch.ones(1)})
