@@ -524,7 +524,9 @@ Text2SemanticDecoder + s1v3.ckpt
 
 第一版不引入 LoRA。
 
-S1 使用全模型可训练参数。官方当前行为约每 4 mini-batch 执行一次 optimizer step。第一版框架把这一语义显式配置：
+S1 使用全模型可训练参数，并调用官方 `Text2SemanticDecoder.forward_old` loss。Task 13 已把官方训练核心迁入项目：`ScaledAdam`、CUDA FP16 动态 `GradScaler`，以及官方实际学习率时序（第一次 optimizer update 使用 `0.01`，此后固定为 `0.002`）。loss 不除以 4；框架将累积边界明确规范为连续且恰好 4 个成功 mini-batch，跨 epoch 继续累积，只在完整边界保存可恢复 checkpoint。
+
+第一版框架把这一语义显式配置：
 
 ```yaml
 s1:
@@ -533,6 +535,8 @@ s1:
 ```
 
 训练日志明确区分 mini_batch_step、optimizer_step、effective_batch。
+
+Task 13 当前提供内部 Python trainer 与内部恢复 checkpoint；训练 CLI/YAML 映射及用户可部署的 S1 权重导出尚未实现，分别由后续任务负责。
 
 第一版训练控制的核心不是 epoch，而是：
 

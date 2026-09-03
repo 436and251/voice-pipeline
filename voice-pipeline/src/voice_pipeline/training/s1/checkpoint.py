@@ -119,20 +119,54 @@ def _validate_optimizer(saved: object, optimizer) -> None:
     current_groups = optimizer.state_dict()["param_groups"]
     if not isinstance(groups, list) or len(groups) != len(current_groups) or not isinstance(states, Mapping):
         raise ValueError("invalid S1 optimizer groups")
-    parameter_ids = set()
-    for saved_group, current_group in zip(groups, current_groups):
+    parameter_batches = {}
+    seen_ids = set()
+    for saved_group, live_group, current_group in zip(groups, optimizer.param_groups, current_groups):
         if not isinstance(saved_group, Mapping) or set(saved_group) != set(current_group):
             raise ValueError("invalid S1 optimizer group keys")
         if not isinstance(saved_group["params"], list) or len(saved_group["params"]) != len(current_group["params"]):
             raise ValueError("invalid S1 optimizer group size")
-        parameter_ids.update(saved_group["params"])
-    if any(identifier not in parameter_ids or not isinstance(state, Mapping) for identifier, state in states.items()):
+        batches = {}
+        for identifier, parameter in zip(saved_group["params"], live_group["params"]):
+            try:
+                duplicate = identifier in seen_ids
+            except TypeError as error:
+                raise ValueError("invalid S1 optimizer parameter identifier") from error
+            if duplicate:
+                raise ValueError("duplicate S1 optimizer parameter identifier")
+            seen_ids.add(identifier)
+            key = (parameter.dtype, parameter.shape)
+            batches.setdefault(key, []).append(identifier)
+        for key, identifiers in batches.items():
+            first = identifiers[0]
+            parameter = live_group["params"][saved_group["params"].index(first)]
+            parameter_batches[first] = (len(identifiers), parameter, saved_group)
+    if any(identifier not in parameter_batches or not isinstance(state, Mapping) for identifier, state in states.items()):
         raise ValueError("invalid S1 optimizer parameter state")
-    for state in states.values():
+    for identifier, state in states.items():
         if "step" in state and (isinstance(state["step"], bool) or not isinstance(state["step"], int) or state["step"] < 0):
             raise ValueError("invalid S1 optimizer step state")
-        if any(not torch.isfinite(value).all() for value in state.values() if isinstance(value, torch.Tensor)):
-            raise ValueError("invalid S1 optimizer tensor state")
+        count, parameter, group = parameter_batches[identifier]
+        required_keys = {"step", "delta", "exp_avg_sq"}
+        if count * parameter.numel() > 1:
+            required_keys.update({"param_rms", "scale_exp_avg_sq", "scale_grads"})
+        if not required_keys.issubset(state):
+            raise ValueError("invalid S1 optimizer state keys")
+        stacked_shape = (count, *parameter.shape)
+        rms_shape = (count, *(1 for _ in parameter.shape)) if parameter.ndim else (1,)
+        expected_shapes = {
+            "delta": stacked_shape,
+            "exp_avg_sq": stacked_shape,
+            "param_rms": rms_shape,
+            "scale_exp_avg_sq": rms_shape,
+            "scale_grads": (group["size_update_period"], *rms_shape),
+            "model_norms": (group["clipping_update_period"],),
+        }
+        for key, value in state.items():
+            if isinstance(value, torch.Tensor):
+                expected = expected_shapes.get(key)
+                if expected is None or value.shape != expected or not torch.isfinite(value).all():
+                    raise ValueError(f"invalid S1 optimizer tensor state: {key}")
 
 
 def _validate_scheduler(saved: object) -> None:
@@ -167,6 +201,11 @@ def _validate_rng(payload: Mapping[str, object]) -> None:
     if torch.cuda.is_available():
         if not isinstance(cuda_rng, list) or len(cuda_rng) != torch.cuda.device_count():
             raise ValueError("invalid S1 checkpoint CUDA RNG state")
+        try:
+            for index, state in enumerate(cuda_rng):
+                torch.Generator(device=f"cuda:{index}").set_state(state)
+        except (RuntimeError, TypeError, ValueError) as error:
+            raise ValueError("invalid S1 checkpoint CUDA RNG state") from error
     elif cuda_rng is not None and not isinstance(cuda_rng, list):
         raise ValueError("invalid S1 checkpoint CUDA RNG state")
 

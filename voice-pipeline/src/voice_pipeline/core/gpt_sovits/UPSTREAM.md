@@ -126,8 +126,38 @@ commented-out `activation_relu_or_gelu` block is omitted.
 the upstream Lightning wrapper's `model.` state-dict prefix and then performs a
 strict load into `Text2SemanticDecoder`.
 
-Optimizer, scheduler, dataset, trainer, ONNX, and V3/V4 code are intentionally
-excluded from this migration slice.
+ONNX and V3/V4 code remain intentionally excluded from this migration slice.
+
+## v2ProPlus S1 training loop
+
+Sources from the pinned revision:
+
+- `GPT_SoVITS/s1_train.py`
+- `GPT_SoVITS/AR/optim.py`
+
+`core/gpt_sovits/s1/optim.py` is a compact migration of the official
+`ScaledAdam`; a multi-shape, eight-update diagnostic produced bit-exact parameter
+and optimizer-state parity with the pinned source. Training calls
+`Text2SemanticDecoder.forward_old`, retains the official full loss without
+dividing it by the accumulation count, and uses CUDA FP16 with PyTorch's default
+dynamic `GradScaler`.
+
+The scheduler adapter preserves the pinned program's actual ordering rather than
+its apparent configured value: the optimizer starts at `0.01`, so the first
+optimizer update uses `0.01`; the scheduler then sets every later update to
+`0.002`.
+
+The project deliberately normalizes the upstream approximate accumulation gate
+to exactly four successful mini-batches per optimizer boundary. Accumulation
+continues across epoch boundaries; no partial gradient is flushed or dropped at
+epoch end. Internal checkpoints are written atomically only at a complete
+boundary and include model, ScaledAdam, scheduler, GradScaler, deterministic data
+cursor, and RNG state. They are resume artifacts, not deployable S1 exports.
+
+The real CUDA smoke uses the five committed preprocessing records for exactly
+four mini-batches and one optimizer update, reloads the resulting internal
+checkpoint, and removes its large output directory in `finally` on both success
+and failure.
 
 ## v2ProPlus S2 core
 
