@@ -1,0 +1,28 @@
+model: models/speaker_name
+device: cuda:0
+output_root: outputs
+
+# Optional. One reference condition is cached and shared by the whole batch.
+# Omit this section to use the ModelBundle's default reference.
+reference:
+  audio: reference.wav
+  text: "今日はいい天気ですね。"
+  language: ja
+
+defaults:
+  language: mixed
+  pause_ms: 10
+  seed: 0
+  top_k: 5
+  top_p: 1.0
+  temperature: 1.0
+  repetition_penalty: 1.35
+  noise_scale: 0.5
+  speed: 1.0
+
+jobs:
+  - name: greeting
+    text: "你好。"
+    language: zh
+  - name: article
+    text_file: input.txt
