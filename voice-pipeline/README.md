@@ -1013,6 +1013,7 @@ s2:
   text_low_lr_rate: 0.4
   freeze_quantizer: true
   grad_ckpt: false
+  resume_from: null  # internal S2 checkpoint; relative paths resolve from project root
 
 s1:
   enabled: true
@@ -1020,6 +1021,7 @@ s1:
   gradient_accumulation: 4
   target_optimizer_steps: 500
   checkpoint_every_steps: 100
+  resume_from: null  # internal S1 checkpoint; relative paths resolve from project root
 
 evaluation:
   enabled: true

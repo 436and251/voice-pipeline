@@ -1,0 +1,29 @@
+profile:
+  name: v2ProPlus
+
+experiment:
+  name: speaker_001
+  output_root: runs
+
+device:
+  device: cuda:0
+  precision: fp16
+
+s2:
+  enabled: true
+  batch_size: 2
+  target_steps: 800
+  checkpoint_every_steps: 200
+  learning_rate: 0.0001
+  text_low_lr_rate: 0.4
+  freeze_quantizer: true
+  grad_ckpt: false
+  resume_from: null
+
+s1:
+  enabled: true
+  batch_size: 2
+  gradient_accumulation: 4
+  target_optimizer_steps: 500
+  checkpoint_every_steps: 100
+  resume_from: null
