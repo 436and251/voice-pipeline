@@ -15,8 +15,13 @@ __all__ = [
     "S1MiniBatchResult",
     "S1OptimizerResult",
     "S1TrainConfig",
+    "S1TrainingCursor",
     "backward_s1_minibatch",
     "build_optimizer",
     "build_scheduler",
     "finish_s1_optimizer_step",
+    "checkpoint_path",
+    "load_checkpoint",
+    "save_checkpoint",
 ]
+from .checkpoint import S1TrainingCursor, checkpoint_path, load_checkpoint, save_checkpoint
