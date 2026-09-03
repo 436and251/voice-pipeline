@@ -7,6 +7,7 @@ from .step import (
     backward_s1_minibatch,
     finish_s1_optimizer_step,
 )
+from .trainer import S1Trainer
 
 __all__ = [
     "S1Collate",
@@ -16,6 +17,7 @@ __all__ = [
     "S1OptimizerResult",
     "S1TrainConfig",
     "S1TrainingCursor",
+    "S1Trainer",
     "backward_s1_minibatch",
     "build_optimizer",
     "build_scheduler",
