@@ -942,6 +942,8 @@ TextFileSource
 
 TextChunker 顺序：paragraph → sentence → hard max fallback。
 
+调用方必须显式传入 `zh`、`ja`、`en` 或 `mixed`。默认 hard max 为中文 100 字，日文、英文和 mixed 500 字；也可在构造 `TextChunker` 时显式覆盖。只有片段超长时才递归切分：先按 `。！？.!?…` 等强标点，再按 `，、；：,;:` 等弱标点，经过两层仍超长才定长截断。标点保留，英文小数中的句点不作为句界。
+
 输出：
 
 ```text
