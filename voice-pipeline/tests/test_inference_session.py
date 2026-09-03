@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
 from pathlib import Path
+import threading
+import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,6 +13,7 @@ import torch
 
 from voice_pipeline.core.gpt_sovits.frontend.contract import FrontendResult
 from voice_pipeline.inference.reference import ReferenceCondition, build_reference_condition
+from voice_pipeline.inference.result import InferenceIdentity
 from voice_pipeline.inference.semantic import generate_semantic
 from voice_pipeline.inference.session import InferenceSession
 from voice_pipeline.inference import session as session_module
@@ -96,13 +101,23 @@ def test_reference_audio_must_be_between_three_and_ten_seconds(monkeypatch, tmp_
 
 def test_session_loads_once_caches_reference_and_synthesizes(monkeypatch, tmp_path: Path):
     bundle_root = tmp_path / "models" / "speaker"
-    bundle_root.mkdir(parents=True)
+    (bundle_root / "reference").mkdir(parents=True)
+    (bundle_root / "reference" / "default.wav").write_bytes(b"default")
+    override_audio = tmp_path / "override.wav"
+    override_audio.write_bytes(b"override")
     reference = SimpleNamespace(audio=Path("reference/default.wav"), text="prompt", language="ja")
     bundle = SimpleNamespace(
         root=bundle_root,
         profile="v2ProPlus",
         weights={"s1": Path("weights/s1.ckpt"), "s2": Path("weights/s2.pth")},
         reference=reference,
+        metadata={
+            "model_name": "speaker_001",
+            "checkpoints": {
+                "s1": {"exported_sha256": "1" * 64},
+                "s2": {"exported_sha256": "2" * 64},
+            },
+        },
     )
     calls = {"s1_load": 0, "s2_load": 0, "reference": 0, "target": 0, "speaker_precision": None}
 
@@ -175,11 +190,17 @@ def test_session_loads_once_caches_reference_and_synthesizes(monkeypatch, tmp_pa
 
     def build_reference(*args, **kwargs):
         calls["reference"] += 1
+        calls["reference_values"] = args[:3]
         return condition
 
     monkeypatch.setattr(session_module, "build_reference_condition", build_reference)
 
-    session = InferenceSession.load(bundle_root, "cpu")
+    session = InferenceSession.load(
+        bundle_root,
+        "cpu",
+        reference_audio=override_audio,
+        reference_language="en",
+    )
     first = session.synthesize("target", "zh", seed=123)
     second = session.synthesize("target", "zh", seed=123)
 
@@ -189,7 +210,16 @@ def test_session_loads_once_caches_reference_and_synthesizes(monkeypatch, tmp_pa
         "reference": 1,
         "target": 2,
         "speaker_precision": "fp32",
+        "reference_values": (override_audio.resolve(), None, "en"),
     }
+    assert session.identity == InferenceIdentity(
+        model_name="speaker_001",
+        s1_sha256="1" * 64,
+        s2_sha256="2" * 64,
+        reference_sha256=hashlib.sha256(b"override").hexdigest(),
+        reference_text=None,
+        reference_language="en",
+    )
     assert first.sample_rate == 32_000 and first.seed == 123
     assert first.waveform.dtype == np.float32
     assert first.waveform.tolist() == [0.0, 1.0, -1.0]
@@ -237,3 +267,66 @@ def test_reference_free_s1_zero_length_sentinel_keeps_all_generated_codes():
     )
 
     assert semantic.codes.tolist() == [[[4, 5, 6]]]
+
+
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ({"reference_audio": Path("override.wav")}, "reference_audio.*reference_language"),
+        ({"reference_text": "prompt"}, "without reference_audio"),
+        ({"reference_language": "en"}, "without reference_audio"),
+    ],
+)
+def test_reference_override_rejects_partial_inputs_before_loading(monkeypatch, options, message):
+    monkeypatch.setattr(
+        session_module.ModelBundle,
+        "load",
+        lambda path: (_ for _ in ()).throw(AssertionError("must validate before loading")),
+    )
+    with pytest.raises(ValueError, match=message):
+        InferenceSession.load("bundle", "cpu", **options)
+
+
+def test_session_serializes_concurrent_synthesis(monkeypatch):
+    identity = InferenceIdentity("speaker", "1" * 64, "2" * 64, "3" * 64, None, "ja")
+    condition = ReferenceCondition(
+        prompt_semantic=torch.tensor([1]),
+        spectrogram=torch.ones(1, 1025, 4),
+        speaker_embedding=torch.ones(1, 20_480),
+        prompt_frontend=None,
+    )
+    session = InferenceSession(
+        s1=object(),
+        s2=object(),
+        frontend=object(),
+        reference=condition,
+        identity=identity,
+        device=torch.device("cpu"),
+        dtype=torch.float32,
+        sample_rate=32_000,
+    )
+    guard = threading.Lock()
+    active = 0
+    maximum = 0
+
+    def generate(*args, **kwargs):
+        nonlocal active, maximum
+        with guard:
+            active += 1
+            maximum = max(maximum, active)
+        time.sleep(0.03)
+        with guard:
+            active -= 1
+        return object()
+
+    monkeypatch.setattr(session_module, "generate_semantic", generate)
+    monkeypatch.setattr(
+        session_module,
+        "decode_waveform",
+        lambda *args, **kwargs: np.zeros(1, dtype=np.float32),
+    )
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda seed: session.synthesize("text", "en", seed=seed), (1, 2)))
+
+    assert maximum == 1
+    assert [result.seed for result in results] == [1, 2]
