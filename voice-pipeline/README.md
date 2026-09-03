@@ -756,6 +756,22 @@ evaluation/listening/
 ModelBundle
 ```
 
+模型选择分成自动 shortlist 与人工最终裁决两层：
+
+```text
+Evaluator 综合评分
+→ evaluation/shortlist.yaml（若干 S1+S2 候选组合）
+→ 全部转换为可推理 CandidateBundle
+→ 每个候选分别生成 ZH / JA / EN 短试听音频
+→ GUI 展示评分和试听结果
+→ 人工选择一个候选
+→ 原子晋升为正式 ModelBundle
+```
+
+Evaluator 可以自动筛出候选，但不得自动决定最终模型。shortlist 中每个候选都显式绑定一份 S1 和一份 S2；任一侧允许使用官方 base 权重。候选使用 `candidate_A` 一类不暴露训练 step 的稳定 ID。
+
+Task 15 负责 shortlist schema、所有候选的推理权重转换、CandidateBundle 校验和人工选择后的无损晋升。Task 17 提供实际推理能力；后续 evaluator/GUI 使用 Task 17 为每个候选、每个支持语言生成一句短试听音频。Task 15 本身不生成音频、不评分，也不选择最终候选。
+
 目录：
 
 ```text
@@ -770,6 +786,17 @@ models/
         ├── default.wav
         └── default.json
 ```
+
+候选转换产物先保存在 run 内：
+
+```text
+runs/speaker_name/export/candidates/
+├── candidate_A/   # 完整可加载的 CandidateBundle
+├── candidate_B/
+└── candidate_C/
+```
+
+人工选中后，将对应目录原子复制/晋升到 `models/speaker_name/`；不重新转换权重。目标目录已存在时默认拒绝，只有显式 overwrite 才允许替换。
 
 `model.yaml` 示例：
 
@@ -791,6 +818,8 @@ languages:
     - ja
     - en
 ```
+
+`model.yaml` 中的所有文件路径必须是 bundle 根目录内的安全相对路径，禁止绝对路径和 `..` 逃逸。S1 内部恢复 checkpoint 转为官方推理 envelope 并使用 FP16 权重；S2 只导出 generator、去除推理不需要的 `enc_q`、使用 FP16 权重，并采用官方 v2ProPlus `06` codec。`metadata.json` 记录候选 ID、源 checkpoint 的 SHA-256 和 optimizer step，但不保存机器绝对路径。
 
 推理只认 ModelBundle，不直接依赖 training run。
 
