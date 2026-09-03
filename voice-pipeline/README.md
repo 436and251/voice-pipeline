@@ -821,6 +821,42 @@ languages:
 
 `model.yaml` 中的所有文件路径必须是 bundle 根目录内的安全相对路径，禁止绝对路径和 `..` 逃逸。S1 内部恢复 checkpoint 转为官方推理 envelope 并使用 FP16 权重；S2 只导出 generator、去除推理不需要的 `enc_q`、使用 FP16 权重，并采用官方 v2ProPlus `06` codec。`metadata.json` 记录候选 ID、源 checkpoint 的 SHA-256 和 optimizer step，但不保存机器绝对路径。
 
+Evaluator 将候选清单写到 `<run>/evaluation/shortlist.yaml`。路径以项目根目录为基准，候选顺序和配对完全显式，不允许导出命令自行扫描或排名：
+
+```yaml
+schema_version: 1
+profile: v2ProPlus
+model_name: speaker_name
+reference:
+  audio: data/reference.wav
+  text: "今日はいい天気ですね。" # 可省略
+  language: ja
+languages:
+  trained: [ja]
+  validated: [zh, ja, en]
+candidates:
+  - id: candidate_A
+    s1: runs/speaker_name/training/s1/checkpoints/step-00000100.pt
+    s2: runs/speaker_name/training/s2/checkpoints/step-00000100.pt
+  - id: candidate_B
+    s1: models/pretrained/v2proplus/s1/s1v3.ckpt # 允许一侧使用官方 base
+    s2: runs/speaker_name/training/s2/checkpoints/step-00000200.pt
+```
+
+将 shortlist 中的全部候选转换为 CandidateBundle：
+
+```powershell
+voice-pipeline export --run runs/speaker_name --project-root .
+```
+
+GUI 或人工试听确定最终候选后，仅晋升这个已经转换好的 Bundle，不重新转换权重：
+
+```powershell
+voice-pipeline export --run runs/speaker_name --project-root . --select candidate_B
+```
+
+目标已存在时默认报错；确认需要替换后才显式添加 `--overwrite`。如需把正式模型写到其他模型根目录，可在晋升命令添加 `--model-root PATH`。`export` 命令没有自动选择“最佳候选”的选项。
+
 推理只认 ModelBundle，不直接依赖 training run。
 
 ## 26. Reference Audio

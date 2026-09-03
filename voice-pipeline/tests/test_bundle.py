@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -65,6 +66,7 @@ def test_load_three_candidate_shortlist(tmp_path: Path):
     ("changes", "message"),
     [
         ({"schema_version": 2}, "schema_version"),
+        ({"schema_version": True}, "schema_version"),
         ({"profile": "v2"}, "v2ProPlus"),
         ({"candidates": []}, "at least one"),
         ({"candidates": [{"id": "../bad", "s1": "runs/s1-A.ckpt", "s2": "runs/s2-A.pth"}]}, "candidate id"),
@@ -98,14 +100,27 @@ def _bundle(root: Path, *, text: str | None = "こんにちは。") -> ModelBund
     (root / "weights" / "s1.ckpt").write_bytes(b"s1")
     (root / "weights" / "s2.pth").write_bytes(b"s2")
     (root / "reference" / "default.wav").write_bytes(b"RIFF")
-    (root / "reference" / "default.json").write_text("{}", encoding="utf-8")
+    reference_payload = {"language": "ja"}
+    if text is not None:
+        reference_payload["text"] = text
+    (root / "reference" / "default.json").write_text(json.dumps(reference_payload), encoding="utf-8")
+    s1_hash = hashlib.sha256(b"s1").hexdigest()
+    s2_hash = hashlib.sha256(b"s2").hexdigest()
     return ModelBundle(
         root=root,
         profile="v2ProPlus",
         weights={"s1": Path("weights/s1.ckpt"), "s2": Path("weights/s2.pth")},
         reference=BundleReference(Path("reference/default.wav"), text, "ja"),
         languages=BundleLanguages(("ja",), ("zh", "ja", "en")),
-        metadata={"candidate_id": "candidate_A"},
+        metadata={
+            "candidate_id": "candidate_A",
+            "model_name": "speaker_name",
+            "profile": "v2ProPlus",
+            "checkpoints": {
+                "s1": {"source_sha256": "0" * 64, "exported_sha256": s1_hash, "source_kind": "training_checkpoint", "optimizer_step": 1},
+                "s2": {"source_sha256": "1" * 64, "exported_sha256": s2_hash, "source_kind": "official_base", "optimizer_step": None},
+            },
+        },
     )
 
 
@@ -141,6 +156,26 @@ def test_model_bundle_manifests_do_not_leak_absolute_paths(tmp_path: Path):
     assert str(tmp_path) not in manifests
 
 
+def test_model_bundle_rejects_invalid_metadata_reference_and_exported_hash(tmp_path: Path):
+    root = tmp_path / "candidate_A"
+    bundle = _bundle(root)
+    bundle.metadata["checkpoints"]["s1"]["source_sha256"] = "C:/private/source.ckpt"
+    with pytest.raises(ValueError, match="source_sha256"):
+        bundle.write()
+
+    bundle = _bundle(tmp_path / "candidate_B")
+    bundle.write()
+    reference_path = bundle.root / "reference" / "default.json"
+    reference_path.write_text('{"language":"en","text":"different"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="reference metadata"):
+        ModelBundle.load(bundle.root)
+
+    reference_path.write_text(json.dumps({"language": "ja", "text": "こんにちは。"}), encoding="utf-8")
+    (bundle.root / "weights" / "s1.ckpt").write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="exported_sha256"):
+        ModelBundle.load(bundle.root)
+
+
 def _exportable_shortlist(tmp_path: Path) -> tuple[Path, Shortlist]:
     run_dir = tmp_path / "runs" / "speaker"
     reference = tmp_path / "data" / "reference.wav"
@@ -150,12 +185,12 @@ def _exportable_shortlist(tmp_path: Path) -> tuple[Path, Shortlist]:
     (base_root / "s1").mkdir(parents=True)
     (base_root / "s2").mkdir()
     torch.save(
-        {"weight": {"model.base": torch.ones(1)}, "config": {"model": {"vocab_size": 1025}}, "info": "base"},
+        {"weight": {"model.x": torch.ones(1)}, "config": {"model": {"vocab_size": 1025}}, "info": "base"},
         base_root / "s1" / "s1v3.ckpt",
     )
     save_sovits(
         base_root / "s2" / "s2Gv2ProPlus.pth",
-        {"weight": {"base": torch.ones(1)}, "config": {"model": {"semantic_frame_rate": "25hz"}}, "info": "base"},
+        {"weight": {"x": torch.ones(1)}, "config": {"model": {"semantic_frame_rate": "25hz"}}, "info": "base"},
     )
     candidates = []
     for index, name in enumerate(("A", "B", "C"), 1):
@@ -221,6 +256,33 @@ def test_existing_candidate_tree_requires_explicit_overwrite(tmp_path: Path):
     assert len(exported) == 3
 
 
+def test_failed_overwrite_restores_previous_candidate_tree(tmp_path: Path, monkeypatch):
+    run_dir, shortlist = _exportable_shortlist(tmp_path)
+    destination = run_dir / "export" / "candidates"
+    export_candidates(shortlist, run_dir, tmp_path)
+    marker = destination / "previous-export.marker"
+    marker.write_text("keep", encoding="utf-8")
+    from voice_pipeline.exporting import bundles
+
+    real_replace = bundles.os.replace
+    failed = False
+
+    def fail_publish(source, target):
+        nonlocal failed
+        if Path(target) == destination and not failed:
+            failed = True
+            raise OSError("publish failed")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(bundles.os, "replace", fail_publish)
+    with pytest.raises(OSError, match="publish failed"):
+        export_candidates(shortlist, run_dir, tmp_path, overwrite=True)
+
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert ModelBundle.load(destination / "candidate_A").metadata["candidate_id"] == "candidate_A"
+    assert not list((run_dir / "export").glob(".candidates.*"))
+
+
 def test_promotion_copies_existing_candidate_without_reconversion(tmp_path: Path, monkeypatch):
     run_dir, shortlist = _exportable_shortlist(tmp_path)
     candidates = export_candidates(shortlist, run_dir, tmp_path)
@@ -252,3 +314,36 @@ def test_promotion_rejects_unknown_candidate_and_existing_model(tmp_path: Path):
         promote_candidate(run_dir, "candidate_B", tmp_path)
     promoted = promote_candidate(run_dir, "candidate_B", tmp_path, overwrite=True)
     assert ModelBundle.load(promoted).metadata["candidate_id"] == "candidate_B"
+
+
+def test_failed_promotion_overwrite_restores_previous_model(tmp_path: Path, monkeypatch):
+    run_dir, shortlist = _exportable_shortlist(tmp_path)
+    export_candidates(shortlist, run_dir, tmp_path)
+    destination = promote_candidate(run_dir, "candidate_A", tmp_path)
+    marker = destination / "previous-model.marker"
+    marker.write_text("keep", encoding="utf-8")
+    from voice_pipeline.exporting import bundles
+
+    real_replace = bundles.os.replace
+    calls = 0
+
+    def fail_publish(source, target):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("promotion publish failed")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(bundles.os, "replace", fail_publish)
+    with pytest.raises(OSError, match="promotion publish failed"):
+        promote_candidate(run_dir, "candidate_B", tmp_path, overwrite=True)
+
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert ModelBundle.load(destination).metadata["candidate_id"] == "candidate_A"
+    assert not list((tmp_path / "models").glob(".speaker.*"))
+
+
+def test_export_rejects_shortlist_from_a_different_run(tmp_path: Path):
+    run_dir, shortlist = _exportable_shortlist(tmp_path)
+    with pytest.raises(ValueError, match="run"):
+        export_candidates(shortlist, run_dir.parent / "other", tmp_path)

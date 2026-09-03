@@ -5,6 +5,7 @@ from pathlib import Path
 
 import torch
 
+from .checkpoints import load_sovits
 from ..s2_v2proplus import (
     MultiPeriodDiscriminator,
     SynthesizerTrn,
@@ -14,7 +15,7 @@ from ..s2_v2proplus import (
 
 
 def _load_checkpoint(path: str | Path) -> Mapping[str, object]:
-    checkpoint = torch.load(Path(path), map_location="cpu", weights_only=False)
+    checkpoint = load_sovits(path)
     if not isinstance(checkpoint, Mapping) or not isinstance(checkpoint.get("config"), dict):
         raise ValueError("invalid S2 checkpoint: missing config")
     if not isinstance(checkpoint.get("weight"), Mapping):

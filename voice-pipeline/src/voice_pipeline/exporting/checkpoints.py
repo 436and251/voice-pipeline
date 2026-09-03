@@ -24,8 +24,12 @@ def export_s1_checkpoint(source: Path, base: Path, destination: Path) -> dict:
         weights = _weights(payload.get("model"), "S1 model")
         source_kind = "training_checkpoint"
         step = payload["optimizer_step"]
+    normalized = _normalize_s1(weights)
+    converted_weights = {key: _half(value, f"S1 weight {key}") for key, value in normalized.items()}
+    expected_weights = _normalize_s1(base_payload["weight"])
+    _validate_compatible("S1", converted_weights, expected_weights)
     converted = {
-        "weight": {_s1_key(key): _half(value, f"S1 weight {key}") for key, value in weights.items()},
+        "weight": converted_weights,
         "config": base_payload["config"],
         "info": "voice-pipeline v2ProPlus inference export",
     }
@@ -55,6 +59,8 @@ def export_s2_checkpoint(source: Path, base: Path, destination: Path) -> dict:
     }
     if not converted_weights:
         raise ValueError("S2 generator has no inference weights")
+    expected_weights = {key: value for key, value in base_payload["weight"].items() if "enc_q" not in key}
+    _validate_compatible("S2", converted_weights, expected_weights)
     converted = {
         "weight": converted_weights,
         "config": base_payload["config"],
@@ -113,15 +119,52 @@ def _weights(value: object, name: str) -> Mapping[str, torch.Tensor]:
 
 def _half(tensor: torch.Tensor, name: str) -> torch.Tensor:
     tensor = tensor.detach().cpu()
-    if (tensor.is_floating_point() or tensor.is_complex()) and not torch.isfinite(tensor).all():
+    if tensor.is_complex():
+        raise ValueError(f"{name} cannot be complex")
+    if tensor.is_floating_point() and not torch.isfinite(tensor).all():
         raise ValueError(f"{name} must contain only finite values")
     if tensor.is_floating_point():
         tensor = tensor.half()
+        if not torch.isfinite(tensor).all():
+            raise ValueError(f"{name} must remain finite in FP16")
     return tensor
 
 
 def _s1_key(key: str) -> str:
     return key if key.startswith("model.") else f"model.{key}"
+
+
+def _normalize_s1(weights: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    normalized: dict[str, torch.Tensor] = {}
+    for key, tensor in weights.items():
+        key = _s1_key(key)
+        if key in normalized:
+            raise ValueError(f"duplicate S1 weight key after normalization: {key}")
+        normalized[key] = tensor
+    return normalized
+
+
+def _validate_compatible(name: str, actual: Mapping[str, torch.Tensor], expected: Mapping[str, torch.Tensor]) -> None:
+    if actual.keys() != expected.keys():
+        missing = sorted(expected.keys() - actual.keys())
+        extra = sorted(actual.keys() - expected.keys())
+        raise ValueError(f"{name} inference weight keys do not match pinned base; missing={missing}, extra={extra}")
+    for key, tensor in actual.items():
+        expected_tensor = expected[key]
+        if tensor.shape != expected_tensor.shape:
+            raise ValueError(
+                f"{name} inference weight shape does not match pinned base for {key}: "
+                f"{tuple(tensor.shape)} != {tuple(expected_tensor.shape)}"
+            )
+        if expected_tensor.is_floating_point():
+            compatible_dtype = tensor.is_floating_point()
+        else:
+            compatible_dtype = tensor.dtype == expected_tensor.dtype
+        if not compatible_dtype:
+            raise ValueError(
+                f"{name} inference weight dtype does not match pinned base for {key}: "
+                f"{tensor.dtype} is incompatible with {expected_tensor.dtype}"
+            )
 
 
 def _atomic_torch_save(payload: dict, destination: Path) -> None:

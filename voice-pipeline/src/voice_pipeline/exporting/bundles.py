@@ -23,6 +23,8 @@ def export_candidates(
 ) -> list[Path]:
     run_dir = Path(run_dir).resolve()
     project_root = Path(project_root).resolve()
+    if shortlist.run_dir != run_dir:
+        raise ValueError("shortlist and export run directories must match")
     if shortlist.project_root != project_root:
         raise ValueError("shortlist and export project roots must match")
     destination = run_dir / "export" / "candidates"

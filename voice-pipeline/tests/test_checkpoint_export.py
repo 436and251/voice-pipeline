@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
+from voice_pipeline.core.gpt_sovits.compatibility import s2_checkpoint
 from voice_pipeline.core.gpt_sovits.compatibility.checkpoints import load_sovits, save_sovits
 from voice_pipeline.exporting.checkpoints import export_s1_checkpoint, export_s2_checkpoint
 
@@ -14,23 +15,23 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _s1_base(path: Path) -> None:
+def _s1_base(path: Path, weights=None) -> None:
     torch.save(
-        {"weight": {"model.base": torch.tensor([1.0])}, "config": {"model": {"vocab_size": 1025}}, "info": "base"},
+        {"weight": weights or {"model.base": torch.tensor([1.0])}, "config": {"model": {"vocab_size": 1025}}, "info": "base"},
         path,
     )
 
 
-def _s2_base(path: Path) -> None:
+def _s2_base(path: Path, weights=None) -> None:
     save_sovits(
         path,
-        {"weight": {"base": torch.tensor([1.0])}, "config": {"model": {"semantic_frame_rate": "25hz"}}, "info": "base"},
+        {"weight": weights or {"base": torch.tensor([1.0])}, "config": {"model": {"semantic_frame_rate": "25hz"}}, "info": "base"},
     )
 
 
 def test_exports_internal_s1_as_official_fp16_envelope(tmp_path: Path):
     base, source, destination = tmp_path / "base.ckpt", tmp_path / "step.pt", tmp_path / "s1.ckpt"
-    _s1_base(base)
+    _s1_base(base, {"model.layer.weight": torch.ones(1), "model.counter": torch.tensor(0)})
     torch.save(
         {
             "format_version": 1,
@@ -69,7 +70,7 @@ def test_exports_base_s1_without_training_state(tmp_path: Path):
 
 def test_exports_internal_s2_generator_only_with_official_codec(tmp_path: Path):
     base, source, destination = tmp_path / "base.pth", tmp_path / "step.pt", tmp_path / "s2.pth"
-    _s2_base(base)
+    _s2_base(base, {"decoder.weight": torch.ones(1), "enc_q.secret": torch.ones(1), "counter": torch.tensor(0)})
     torch.save(
         {
             "format_version": 1,
@@ -113,11 +114,11 @@ def test_rejects_wrong_profile_and_nonfinite_weights_without_output(tmp_path: Pa
     source = tmp_path / "step.pt"
     destination = tmp_path / "output.pt"
     if stage == "s1":
-        _s1_base(base)
+        _s1_base(base, {"model.x": torch.ones(())})
         payload = {"format_version": 1, "profile": "v2", "optimizer_step": 1, "model": {"x": torch.tensor(float("nan"))}}
         export = export_s1_checkpoint
     else:
-        _s2_base(base)
+        _s2_base(base, {"x": torch.ones(())})
         payload = {"format_version": 1, "profile": "v2", "global_step": 1, "net_g": {"x": torch.tensor(float("nan"))}}
         export = export_s2_checkpoint
     torch.save(payload, source)
@@ -141,3 +142,92 @@ def test_rejects_discriminator_only_and_destination_alias(tmp_path: Path):
         export_s2_checkpoint(source, base, tmp_path / "output.pth")
     with pytest.raises(ValueError, match="must differ"):
         export_s2_checkpoint(base, base, base)
+
+
+@pytest.mark.parametrize(
+    ("stage", "weights"),
+    [
+        ("s1", {}),
+        ("s1", {"x": torch.ones(1), "extra": torch.ones(1)}),
+        ("s1", {"x": torch.ones(2)}),
+        ("s2", {}),
+        ("s2", {"x": torch.ones(1), "extra": torch.ones(1)}),
+        ("s2", {"x": torch.ones(2)}),
+    ],
+)
+def test_rejects_model_state_not_matching_pinned_base(tmp_path: Path, stage: str, weights: dict):
+    base, source, destination = tmp_path / f"base.{stage}", tmp_path / "step.pt", tmp_path / "output.pt"
+    if stage == "s1":
+        _s1_base(base, {"model.x": torch.ones(1)})
+        payload = {"format_version": 1, "profile": "v2ProPlus", "optimizer_step": 1, "model": weights}
+        export = export_s1_checkpoint
+    else:
+        _s2_base(base, {"x": torch.ones(1), "enc_q.unused": torch.ones(1)})
+        payload = {"format_version": 1, "profile": "v2ProPlus", "global_step": 1, "net_g": weights}
+        export = export_s2_checkpoint
+    torch.save(payload, source)
+    with pytest.raises(ValueError, match="keys|shape|weights"):
+        export(source, base, destination)
+    assert not destination.exists()
+
+
+def test_exported_06_checkpoint_loads_through_s2_inference_loader(tmp_path: Path, monkeypatch):
+    base, source, destination = tmp_path / "base.pth", tmp_path / "step.pt", tmp_path / "s2.pth"
+    model = torch.nn.Linear(2, 1)
+    _s2_base(base, model.state_dict())
+    torch.save(
+        {"format_version": 1, "profile": "v2ProPlus", "global_step": 1, "net_g": model.state_dict()},
+        source,
+    )
+    export_s2_checkpoint(source, base, destination)
+    monkeypatch.setattr(s2_checkpoint, "build_s2_generator", lambda config: torch.nn.Linear(2, 1))
+
+    loaded = s2_checkpoint.load_s2_generator(destination)
+
+    assert torch.equal(loaded.weight, model.weight.half())
+
+
+def test_rejects_fp16_overflow_before_publishing(tmp_path: Path):
+    base, source, destination = tmp_path / "base.ckpt", tmp_path / "step.pt", tmp_path / "s1.ckpt"
+    _s1_base(base, {"model.x": torch.ones(1)})
+    torch.save(
+        {"format_version": 1, "profile": "v2ProPlus", "optimizer_step": 1, "model": {"x": torch.tensor([70000.0])}},
+        source,
+    )
+    with pytest.raises(ValueError, match="finite.*FP16"):
+        export_s1_checkpoint(source, base, destination)
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize("stage", ["s1", "s2"])
+def test_rejects_integer_tensor_substituted_for_floating_parameter(tmp_path: Path, stage: str):
+    base, source, destination = tmp_path / f"base.{stage}", tmp_path / "step.pt", tmp_path / "output.pt"
+    if stage == "s1":
+        _s1_base(base, {"model.x": torch.ones(1)})
+        payload = {"format_version": 1, "profile": "v2ProPlus", "optimizer_step": 1, "model": {"x": torch.ones(1, dtype=torch.int64)}}
+        export = export_s1_checkpoint
+    else:
+        _s2_base(base, {"x": torch.ones(1)})
+        payload = {"format_version": 1, "profile": "v2ProPlus", "global_step": 1, "net_g": {"x": torch.ones(1, dtype=torch.bool)}}
+        export = export_s2_checkpoint
+    torch.save(payload, source)
+    with pytest.raises(ValueError, match="dtype"):
+        export(source, base, destination)
+    assert not destination.exists()
+
+
+def test_rejects_duplicate_s1_keys_after_official_prefix_normalization(tmp_path: Path):
+    base, source, destination = tmp_path / "base.ckpt", tmp_path / "step.pt", tmp_path / "s1.ckpt"
+    _s1_base(base, {"model.x": torch.ones(1)})
+    torch.save(
+        {
+            "format_version": 1,
+            "profile": "v2ProPlus",
+            "optimizer_step": 1,
+            "model": {"x": torch.ones(1), "model.x": torch.ones(1)},
+        },
+        source,
+    )
+    with pytest.raises(ValueError, match="duplicate"):
+        export_s1_checkpoint(source, base, destination)
+    assert not destination.exists()

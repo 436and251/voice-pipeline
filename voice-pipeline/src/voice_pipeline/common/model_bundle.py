@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import hashlib
 from pathlib import Path
 import re
 from typing import Any
@@ -11,6 +12,7 @@ import yaml
 
 _LANGUAGES = {"zh", "ja", "en"}
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +51,7 @@ class Shortlist:
         project_root = Path(project_root).resolve()
         payload = _load_yaml(run_dir / "evaluation" / "shortlist.yaml", "shortlist")
         _strict(payload, "shortlist", {"schema_version", "profile", "model_name", "reference", "languages", "candidates"})
-        if payload.get("schema_version") != 1:
+        if type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
             raise ValueError("shortlist.schema_version must be 1")
         if payload.get("profile") != "v2ProPlus":
             raise ValueError("shortlist.profile must be v2ProPlus")
@@ -92,7 +94,7 @@ class ModelBundle:
         root = Path(root).resolve()
         payload = _load_yaml(root / "model.yaml", "model bundle")
         _strict(payload, "model bundle", {"schema_version", "profile", "weights", "reference", "languages"})
-        if payload.get("schema_version") != 1:
+        if type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
             raise ValueError("model bundle schema_version must be 1")
         weights = _mapping(payload.get("weights"), "weights")
         _strict(weights, "weights", {"s1", "s2"})
@@ -125,8 +127,8 @@ class ModelBundle:
         _safe_existing_path(self.root, Path("reference/default.json"), "reference metadata", "bundle")
         _validate_reference_values(self.reference)
         _validate_languages(self.languages)
-        if not isinstance(self.metadata, dict):
-            raise ValueError("model bundle metadata must be a mapping")
+        _validate_reference_metadata(self.root, self.reference)
+        _validate_metadata(self.root, self.profile, self.weights, self.metadata)
 
     def write(self, root: Path | None = None) -> None:
         if root is not None:
@@ -238,6 +240,65 @@ def _validate_languages(languages: BundleLanguages) -> None:
     for field, values in (("trained", languages.trained), ("validated", languages.validated)):
         if not values or len(set(values)) != len(values) or any(value not in _LANGUAGES for value in values):
             raise ValueError(f"languages.{field} must contain unique zh, ja, or en values")
+
+
+def _validate_reference_metadata(root: Path, reference: BundleReference) -> None:
+    path = root / "reference" / "default.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid reference metadata: {error}") from error
+    payload = _mapping(payload, "reference metadata")
+    allowed = {"language"} if reference.text is None else {"language", "text"}
+    _strict(payload, "reference metadata", allowed)
+    if set(payload) != allowed or payload.get("language") != reference.language or payload.get("text") != reference.text:
+        raise ValueError("reference metadata must match model.yaml reference")
+
+
+def _validate_metadata(root: Path, profile: str, weights: dict[str, Path], metadata: Any) -> None:
+    metadata = _mapping(metadata, "model bundle metadata")
+    required = {"candidate_id", "model_name", "profile", "checkpoints"}
+    _strict(metadata, "model bundle metadata", required)
+    if set(metadata) != required:
+        raise ValueError("model bundle metadata is missing required fields")
+    _safe_name(metadata["candidate_id"], "metadata.candidate_id")
+    _safe_name(metadata["model_name"], "metadata.model_name")
+    if metadata["profile"] != profile:
+        raise ValueError("metadata.profile must match model.yaml profile")
+    checkpoints = _mapping(metadata["checkpoints"], "metadata.checkpoints")
+    _strict(checkpoints, "metadata.checkpoints", {"s1", "s2"})
+    if set(checkpoints) != {"s1", "s2"}:
+        raise ValueError("metadata.checkpoints must contain exactly s1 and s2")
+    for stage in ("s1", "s2"):
+        checkpoint = _mapping(checkpoints[stage], f"metadata.checkpoints.{stage}")
+        fields = {"source_sha256", "exported_sha256", "source_kind", "optimizer_step"}
+        _strict(checkpoint, f"metadata.checkpoints.{stage}", fields)
+        if set(checkpoint) != fields:
+            raise ValueError(f"metadata.checkpoints.{stage} is missing required fields")
+        for field in ("source_sha256", "exported_sha256"):
+            if not isinstance(checkpoint[field], str) or not _SHA256.fullmatch(checkpoint[field]):
+                raise ValueError(f"metadata.checkpoints.{stage}.{field} must be a lowercase SHA-256")
+        kind = checkpoint["source_kind"]
+        step = checkpoint["optimizer_step"]
+        if kind == "official_base":
+            if step is not None:
+                raise ValueError(f"metadata.checkpoints.{stage}.optimizer_step must be null for official_base")
+        elif kind == "training_checkpoint":
+            if isinstance(step, bool) or not isinstance(step, int) or step < 0:
+                raise ValueError(f"metadata.checkpoints.{stage}.optimizer_step must be a nonnegative integer")
+        else:
+            raise ValueError(f"metadata.checkpoints.{stage}.source_kind is invalid")
+        exported = (root / weights[stage]).resolve()
+        if _sha256(exported) != checkpoint["exported_sha256"]:
+            raise ValueError(f"metadata.checkpoints.{stage}.exported_sha256 does not match the weight file")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 __all__ = ["BundleLanguages", "BundleReference", "Candidate", "ModelBundle", "Shortlist"]
