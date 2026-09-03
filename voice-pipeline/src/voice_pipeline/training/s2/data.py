@@ -7,7 +7,9 @@ import wave
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset
+
+from voice_pipeline.training.sampler import DeterministicEpochSampler
 
 from voice_pipeline.core.gpt_sovits.s2_v2proplus.mel_processing import spectrogram_torch
 
@@ -125,23 +127,6 @@ class S2Dataset(Dataset[S2Item]):
         if not isinstance(value, torch.Tensor):
             raise ValueError(f"{sample_id} has invalid {directory} artifact")
         return value
-
-
-class DeterministicEpochSampler(Sampler[int]):
-    def __init__(self, dataset: S2Dataset, seed: int) -> None:
-        self.dataset = dataset
-        self.seed = seed
-        self.epoch = 0
-
-    def set_epoch(self, epoch: int) -> None:
-        self.epoch = epoch
-
-    def __iter__(self):
-        generator = torch.Generator().manual_seed(self.seed + self.epoch)
-        return iter(torch.randperm(len(self.dataset), generator=generator).tolist())
-
-    def __len__(self) -> int:
-        return len(self.dataset)
 
 
 class S2Collate:

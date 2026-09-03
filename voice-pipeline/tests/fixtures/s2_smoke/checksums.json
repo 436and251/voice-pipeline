@@ -23,6 +23,26 @@
     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "size": 0
   },
+  "preprocess/semantic/s2-smoke-01.pt": {
+    "sha256": "8cb6c2d55427388928b1611d58795e456624667679f483fadc35c70acbefaee6",
+    "size": 1797
+  },
+  "preprocess/semantic/s2-smoke-02.pt": {
+    "sha256": "7703d86afdc077a851dbde2ac78e69953db743c3f290945011ea4e498570acc5",
+    "size": 1797
+  },
+  "preprocess/semantic/s2-smoke-03.pt": {
+    "sha256": "ead132426df9f43e1ad8451388570efd6e771c3475adaf1a1fa29d66acec24d8",
+    "size": 1797
+  },
+  "preprocess/semantic/s2-smoke-04.pt": {
+    "sha256": "31f26e9d86831155cf70f53e1217178fd72bf91d7090a8f5a0b7dcd1dab8bd7e",
+    "size": 1797
+  },
+  "preprocess/semantic/s2-smoke-05.pt": {
+    "sha256": "9ef1fd4ede8bb84a54ef91ef3ba6c22cc273f1b80a4449cdbe03f9c1fee9e604",
+    "size": 1797
+  },
   "preprocess/sv/s2-smoke-01.pt": {
     "sha256": "bb8cfcbe06a5ea1f111b8063d31991d4c1b0a273fdf02ed4e76c0ffcc07d98ce",
     "size": 83525
@@ -43,21 +63,41 @@
     "sha256": "6f2aac6d280825ad6210e037fd42159fdfc00923d6e2483f052ed6af467b66a1",
     "size": 83525
   },
+  "preprocess/text/s2-smoke-01.bert.pt": {
+    "sha256": "79baccfcce24d91d0d43c3e2edce6d6e8647289e06f295574513cfc7b67c7a9f",
+    "size": 34408
+  },
   "preprocess/text/s2-smoke-01.json": {
     "sha256": "fdb5226bb1e1991d12dd2c8e43f2ce9625f28a317538d233d0b7e6538b9b0ae2",
     "size": 235
+  },
+  "preprocess/text/s2-smoke-02.bert.pt": {
+    "sha256": "5129c8e31f4ae1b78c21822d840f395159beee99d258217900d28c2f9f7ec13a",
+    "size": 34408
   },
   "preprocess/text/s2-smoke-02.json": {
     "sha256": "c516d78b15f5c76bf16089ecd51f19853cbd7323ae17fb43efd8770dd142f94d",
     "size": 235
   },
+  "preprocess/text/s2-smoke-03.bert.pt": {
+    "sha256": "80275db783dac3063432f291148331cec4473ed0e6b4758661c53024ccafb337",
+    "size": 34408
+  },
   "preprocess/text/s2-smoke-03.json": {
     "sha256": "1080822eb1ce69147d22d4f32d55f8476ecdea2981c13250c2180f4963a5ec35",
     "size": 235
   },
+  "preprocess/text/s2-smoke-04.bert.pt": {
+    "sha256": "1b5cf6199f0b11dbfdabffc27dc18c9fd6bfb865ae6fa8fa258807f22a5d226c",
+    "size": 34408
+  },
   "preprocess/text/s2-smoke-04.json": {
     "sha256": "19103bb34103e0e15e398fe36b5f6496f73ef308a0d0426db270b8e5b0f15546",
     "size": 235
+  },
+  "preprocess/text/s2-smoke-05.bert.pt": {
+    "sha256": "34f143c064b6c9a9806421489d84955bdcb593d60cec314014c90678c49f600a",
+    "size": 34408
   },
   "preprocess/text/s2-smoke-05.json": {
     "sha256": "fa5650d5bef1f1f222d0a393f138818f1aba46df68bb04d454a2dc6ffd709848",

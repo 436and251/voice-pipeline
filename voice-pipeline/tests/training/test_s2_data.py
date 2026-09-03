@@ -9,7 +9,8 @@ import wave
 import pytest
 import torch
 
-from voice_pipeline.training.s2.data import DeterministicEpochSampler, S2Collate, S2Dataset
+from voice_pipeline.training.s2.data import S2Collate, S2Dataset
+from voice_pipeline.training.sampler import DeterministicEpochSampler
 
 
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "s2_smoke"
