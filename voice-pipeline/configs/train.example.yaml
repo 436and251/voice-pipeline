@@ -42,3 +42,24 @@ s1:
   target_optimizer_steps: 500
   checkpoint_every_steps: 100
   resume_from: null
+
+evaluation:
+  enabled: true
+  reference:
+    audio: D:/dataset/reference.wav
+    text: 今日はいい天気ですね。
+    language: ja
+  speaker_references:
+    - D:/dataset/reference.wav
+  suites:
+    zh: configs/eval/zh.txt
+    ja: configs/eval/ja.txt
+    en: configs/eval/en.txt
+    mixed: configs/eval/mixed.txt
+  models:
+    asr: mobiuslabsgmbh/faster-whisper-large-v3-turbo
+    speaker: microsoft/wavlm-base-plus-sv
+    cache_dir: D:/AI-Training/AI-cache/huggingface/hub
+  pairing:
+    s2_keep: 2
+    shortlist_size: 3

@@ -8,6 +8,7 @@ import yaml
 
 from voice_pipeline.profiles.base import ModelProfile
 from voice_pipeline.profiles.registry import ProfileRegistry
+from voice_pipeline.evaluation.config import EvaluationConfig, parse_evaluation_config
 from voice_pipeline.training.s1 import S1TrainConfig
 from voice_pipeline.training.s2 import S2TrainConfig
 
@@ -34,6 +35,7 @@ class TrainingConfig:
     project_root: Path
     s1: S1TrainConfig | None
     s2: S2TrainConfig | None
+    evaluation: EvaluationConfig | None
     s1_resume_from: Path | None
     s2_resume_from: Path | None
 
@@ -78,7 +80,16 @@ class TrainingConfig:
         s2, s2_resume = _parse_s2(payload.get("s2"), root, output_dir, preprocess_dir, profile, device, precision)
         if s1 is None and s2 is None:
             raise ValueError("at least one training stage must be enabled")
-        return cls(profile, name, output_root, root, s1, s2, s1_resume, s2_resume)
+        evaluation = parse_evaluation_config(
+            payload.get("evaluation"),
+            root=root,
+            run_dir=output_dir,
+            model_name=name,
+            objective=payload.get("objective"),
+            device=device,
+            precision=precision,
+        )
+        return cls(profile, name, output_root, root, s1, s2, evaluation, s1_resume, s2_resume)
 
 
 def _parse_s1(value, root, output_dir, preprocess_dir, profile, device, precision):
@@ -245,7 +256,7 @@ def _validate_shared_sections(payload: dict) -> None:
         "dataset": {"manifest"},
         "objective": {"training_languages", "target_languages", "cross_language_preservation"},
         "preprocess": {"resume"},
-        "evaluation": {"enabled", "reference", "suites"},
+        "evaluation": {"enabled", "reference", "speaker_references", "suites", "models", "pairing"},
     }
     for name, allowed in schemas.items():
         if name not in payload:
@@ -277,7 +288,12 @@ def _validate_shared_sections(payload: dict) -> None:
     if evaluation is not None:
         if "enabled" in evaluation and not isinstance(evaluation["enabled"], bool):
             raise ValueError("evaluation.enabled must be boolean")
-        for field, allowed in (("reference", {"audio", "text", "language"}), ("suites", {"zh", "ja", "en", "mixed"})):
+        for field, allowed in (
+            ("reference", {"audio", "text", "language"}),
+            ("suites", {"zh", "ja", "en", "mixed"}),
+            ("models", {"asr", "speaker", "cache_dir"}),
+            ("pairing", {"s2_keep", "shortlist_size"}),
+        ):
             if field in evaluation:
                 nested = evaluation[field]
                 if not isinstance(nested, dict):

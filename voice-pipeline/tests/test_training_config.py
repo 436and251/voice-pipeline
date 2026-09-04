@@ -75,6 +75,52 @@ def test_training_config_maps_readme_yaml_to_existing_trainers(tmp_path: Path) -
     assert config.s1_resume_from == tmp_path / "resumes/s1.pt"
 
 
+def test_training_config_resolves_evaluation_settings(tmp_path: Path) -> None:
+    for language in ("zh", "ja", "en", "mixed"):
+        (tmp_path / f"{language}.txt").write_text("sample\n", encoding="utf-8")
+    (tmp_path / "reference.wav").touch()
+    path = _write_config(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + """objective:
+  training_languages: [ja]
+  target_languages: [zh, ja, en]
+  cross_language_preservation: strict
+evaluation:
+  enabled: true
+  reference:
+    audio: reference.wav
+    text: 参照音声です。
+    language: ja
+  speaker_references: [reference.wav]
+  suites:
+    zh: zh.txt
+    ja: ja.txt
+    en: en.txt
+    mixed: mixed.txt
+  models:
+    asr: mobiuslabsgmbh/faster-whisper-large-v3-turbo
+    speaker: microsoft/wavlm-base-plus-sv
+    cache_dir: hf-cache
+  pairing:
+    s2_keep: 2
+    shortlist_size: 3
+""",
+        encoding="utf-8",
+    )
+
+    config = TrainingConfig.from_yaml(path, project_root=tmp_path)
+
+    assert config.evaluation is not None
+    assert config.evaluation.run_dir == tmp_path / "runs/speaker_001"
+    assert config.evaluation.model_name == "speaker_001"
+    assert config.evaluation.trained_languages == ("ja",)
+    assert config.evaluation.validated_languages == ("zh", "ja", "en")
+    assert config.evaluation.cache_dir == tmp_path / "hf-cache"
+    assert config.evaluation.pairing.s2_keep == 2
+    assert config.evaluation.pairing.shortlist_size == 3
+
+
 @pytest.mark.parametrize(
     ("replacement", "message"),
     [

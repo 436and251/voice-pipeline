@@ -1,0 +1,4 @@
+# Mixed-language fixed evaluation suite
+请打开 settings 页面，然后点击 Save 按钮。
+今日の meeting は午後 three o'clock に始まります。
+请确认今日の予定，然后告诉我 next task 是什么。
