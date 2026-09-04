@@ -10,6 +10,7 @@ import uuid
 
 import numpy as np
 
+from .session import validate_synthesis_options
 from .text_chunker import TextChunker
 from .wav import read_wav, write_wav_atomic
 
@@ -32,7 +33,18 @@ def resolve_output_path(
     if not isinstance(model_name, str) or not _SAFE_MODEL_NAME.fullmatch(model_name):
         raise ValueError("model_name must be a safe name")
     relative = Path(relative_output)
-    if relative.is_absolute() or ".." in relative.parts or relative.suffix.lower() != ".wav":
+    unsafe_component = any(
+        ":" in part
+        or part != part.rstrip(" .")
+        or part.rstrip(" .").casefold().endswith(".infer")
+        for part in relative.parts
+    )
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or relative.suffix.lower() != ".wav"
+        or unsafe_component
+    ):
         raise ValueError("output must be a safe relative .wav path")
     namespace = (Path(output_root).resolve() / model_name).resolve()
     resolved = (namespace / relative).resolve()
@@ -58,8 +70,13 @@ def run_synthesis_job(
     noise_scale: float = 0.5,
     speed: float = 1.0,
 ) -> JobResult:
+    if type(overwrite) is not bool:
+        raise ValueError("overwrite must be boolean")
     if isinstance(pause_ms, bool) or not isinstance(pause_ms, int) or pause_ms < 0:
         raise ValueError("pause_ms must be a nonnegative integer")
+    validate_synthesis_options(
+        text, language, seed, top_k, top_p, temperature, repetition_penalty, noise_scale, speed
+    )
     output_path = Path(output_path).resolve()
     if output_path.suffix.lower() != ".wav":
         raise ValueError("output_path must end in .wav")

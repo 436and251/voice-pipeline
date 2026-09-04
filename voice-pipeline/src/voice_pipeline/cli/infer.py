@@ -3,11 +3,13 @@ from __future__ import annotations
 import math
 from pathlib import Path
 import re
+from time import perf_counter
 
 import typer
 import yaml
 
 from voice_pipeline.inference.job import resolve_output_path, run_synthesis_job
+from voice_pipeline.inference.long_text import synthesize_text
 from voice_pipeline.inference.session import InferenceSession
 from voice_pipeline.inference.text_source import resolve_text_source
 
@@ -87,6 +89,70 @@ def synthesize(
         _fail(error)
 
 
+@app.command()
+def benchmark(
+    model: Path = typer.Option(..., "--model", exists=True, file_okay=False),
+    text: str | None = typer.Option(None, "--text"),
+    text_file: Path | None = typer.Option(None, "--text-file"),
+    language: str = typer.Option(..., "--lang"),
+    device: str = typer.Option("cuda:0", "--device"),
+    reference: Path | None = typer.Option(None, "--reference"),
+    reference_text: str | None = typer.Option(None, "--reference-text"),
+    reference_language: str | None = typer.Option(None, "--reference-lang"),
+    pause_ms: int = typer.Option(10, "--pause-ms"),
+    max_chars: int | None = typer.Option(None, "--max-chars"),
+    seed: int = typer.Option(0, "--seed"),
+    top_k: int = typer.Option(5, "--top-k"),
+    top_p: float = typer.Option(1.0, "--top-p"),
+    temperature: float = typer.Option(1.0, "--temperature"),
+    repetition_penalty: float = typer.Option(1.35, "--repetition-penalty"),
+    noise_scale: float = typer.Option(0.5, "--noise-scale"),
+    speed: float = typer.Option(1.0, "--speed"),
+    warmup: int = typer.Option(1, "--warmup"),
+    runs: int = typer.Option(3, "--runs"),
+) -> None:
+    """Measure complete in-memory synthesis without writing artifacts."""
+    try:
+        if isinstance(warmup, bool) or warmup < 0:
+            raise ValueError("warmup must be a nonnegative integer")
+        if isinstance(runs, bool) or runs <= 0:
+            raise ValueError("runs must be a positive integer")
+        source = resolve_text_source(text, _resolve_optional_path(text_file))
+        _validate_options(language, pause_ms, max_chars, seed, top_k, top_p, temperature, repetition_penalty, noise_scale, speed)
+        reference_options = _reference_options(reference, reference_text, reference_language)
+        session = InferenceSession.load(model.resolve(), device, **reference_options)
+        options = {
+            "pause_ms": pause_ms,
+            "max_chars": max_chars,
+            "seed": seed,
+            "top_k": top_k,
+            "top_p": top_p,
+            "temperature": temperature,
+            "repetition_penalty": repetition_penalty,
+            "noise_scale": noise_scale,
+            "speed": speed,
+        }
+        result = None
+        for _ in range(warmup):
+            result = synthesize_text(session, source, language, **options)
+        elapsed = []
+        for _ in range(runs):
+            started = perf_counter()
+            result = synthesize_text(session, source, language, **options)
+            elapsed.append(perf_counter() - started)
+        assert result is not None
+        audio_seconds = result.waveform.size / result.sample_rate
+        if audio_seconds <= 0:
+            raise RuntimeError("benchmark produced empty audio")
+        average = sum(elapsed) / len(elapsed)
+        typer.echo(f"audio_seconds: {audio_seconds:.3f}")
+        typer.echo(f"average_seconds: {average:.3f}")
+        typer.echo(f"fastest_seconds: {min(elapsed):.3f}")
+        typer.echo(f"rtf: {average / audio_seconds:.3f}")
+    except (FileNotFoundError, KeyError, OSError, RuntimeError, ValueError) as error:
+        _fail(error)
+
+
 @app.command("batch")
 def batch_command(
     config: Path = typer.Option(..., "--config", exists=True, dir_okay=False),
@@ -129,6 +195,9 @@ def _load_batch(path: Path) -> dict:
     _reject_unknown("batch", payload, {"model", "device", "output_root", "reference", "defaults", "jobs"})
     if not isinstance(payload.get("model"), str) or not payload["model"].strip():
         raise ValueError("batch model must be a non-empty path")
+    device = payload.get("device", "cuda:0")
+    if not isinstance(device, str) or not device.strip():
+        raise ValueError("batch device must be a string")
     raw_jobs = payload.get("jobs")
     if not isinstance(raw_jobs, list) or not raw_jobs:
         raise ValueError("batch jobs must be a non-empty list")
@@ -171,7 +240,7 @@ def _load_batch(path: Path) -> dict:
         jobs.append({"name": name, "text": source, "options": options})
     return {
         "model": _project_path(project_root, payload["model"]),
-        "device": payload.get("device", "cuda:0"),
+        "device": device,
         "output_root": _project_path(project_root, payload.get("output_root", "outputs")),
         "reference": reference,
         "jobs": jobs,
@@ -259,6 +328,8 @@ def _resolve_optional_path(path: Path | None) -> Path | None:
 
 
 def _reject_unknown(name: str, mapping: dict, allowed: set[str]) -> None:
+    if any(not isinstance(key, str) for key in mapping):
+        raise ValueError(f"{name} keys must be strings")
     unknown = set(mapping) - allowed
     if unknown:
         raise ValueError(f"unknown {name} field: {', '.join(sorted(unknown))}")

@@ -867,6 +867,16 @@ voice-pipeline export --run runs/speaker_name --project-root . --select candidat
 
 ## 27. InferenceSession
 
+推理与训练流程解耦。训练 / 评测 / 人工选择最终只需要产出一个正式
+`ModelBundle`；之后 CLI、桌面助手后台或未来服务进程都可以单独加载它，不需要
+访问对应的 `runs/` 训练目录：
+
+```text
+training / export → ModelBundle
+                         ↓
+CLI / desktop backend / future service → inference package → audio samples
+```
+
 标准生命周期：
 
 ```text
@@ -893,6 +903,24 @@ READY
 
 同一 session 后续多次推理不重复加载模型。
 
+Python 内存调用：
+
+```python
+from voice_pipeline.inference import InferenceSession, synthesize_text
+
+session = InferenceSession.load("models/speaker_name", "cuda:0")
+result = synthesize_text(session, "今 morning，今天也请多关照。", "mixed")
+# result.waveform: mono float32 NumPy array; result.sample_rate: 32000
+```
+
+`synthesize_text` 会使用下述长文本切分规则，并默认在 chunk 之间加入 10 ms
+静音；`pause_ms` 可传非负整数覆盖。同一个 session 可以长期驻留并被不同调用方
+复用。单 session 内推理会串行执行；需要 GPU 并发时使用多个工作进程或模型副本。
+
+默认使用 ModelBundle 自带参考条件。若调用时覆盖参考音频，必须同时明确参考
+语言；参考文本可省略，省略时走 ref-free S1。不能只覆盖参考文本或参考语言。
+HTTP、鉴权、流式音频和服务进程管理不属于当前推理核心，由后续服务适配层负责。
+
 ## 28. 训练 / 推理共享 Frontend
 
 训练与推理只允许使用同一份 multilingual frontend。统一处理：
@@ -917,7 +945,8 @@ Inline：
 voice-pipeline infer synthesize \
   --model models/speaker_name \
   --text "今天天气很好。" \
-  --lang zh
+  --lang zh \
+  --output hello.wav
 ```
 
 TXT：
@@ -926,7 +955,8 @@ TXT：
 voice-pipeline infer synthesize \
   --model models/speaker_name \
   --text-file input.txt \
-  --lang zh
+  --lang zh \
+  --output article.wav
 ```
 
 规则：`--text` 与 `--text-file` 互斥；`.txt` only；UTF-8 / UTF-8-SIG；空文件报错；不支持 Markdown、HTML、富文本。
@@ -947,16 +977,21 @@ TextChunker 顺序：paragraph → sentence → hard max fallback。
 输出：
 
 ```text
-outputs/article/
-├── chunks/
-│   ├── 000001.wav
-│   ├── 000002.wav
-│   └── ...
-├── manifest.json
-└── article.wav
+outputs/
+└── speaker_name/
+    ├── article.wav
+    └── article.infer/
+        ├── chunks/
+        │   ├── 000001.wav
+        │   ├── 000002.wav
+        │   └── ...
+        └── manifest.json
 ```
 
-每个 chunk 维护状态，支持 resume。
+`--output article.wav` 是相对于 `outputs/<model_name>/` 的安全路径，不能是绝对
+路径或包含 `..`。每个 chunk 维护状态和 SHA-256，支持 resume；文本、模型、参考
+条件或推理参数变化时默认拒绝复用，只有显式 `--overwrite` 才重建任务。成功后保留
+manifest 和 chunk WAV，供审计、试听和重新拼接。
 
 ## 31. CLI 统一入口
 
@@ -1003,7 +1038,7 @@ voice-pipeline infer synthesize \
   --reference-lang ja \
   --text "今天天气很好。" \
   --lang zh \
-  --output outputs/test.wav
+  --output test.wav
 ```
 
 TXT：
@@ -1016,7 +1051,24 @@ voice-pipeline infer synthesize \
   --reference-lang ja \
   --text-file input.txt \
   --lang zh \
-  --output outputs/article.wav
+  --output article.wav \
+  --pause-ms 10
+```
+
+不传 `--reference` 时使用 ModelBundle 内置参考条件。批量推理读取严格 YAML，整个
+batch 只加载一次模型和一套参考条件：
+
+```bash
+voice-pipeline infer batch --config configs/infer.example.yaml
+```
+
+性能测试不写 WAV 或 manifest，模型加载不计时；默认预热 1 次并测量 3 次：
+
+```bash
+voice-pipeline infer benchmark \
+  --model models/speaker_name \
+  --text "Hello from the assistant." \
+  --lang en
 ```
 
 ## 33. Pipeline YAML

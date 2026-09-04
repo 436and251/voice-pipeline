@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .result import InferenceResult
+from .session import validate_synthesis_options
 from .text_chunker import TextChunker
 
 
@@ -23,6 +24,9 @@ def synthesize_text(
 ) -> InferenceResult:
     if isinstance(pause_ms, bool) or not isinstance(pause_ms, int) or pause_ms < 0:
         raise ValueError("pause_ms must be a nonnegative integer")
+    validate_synthesis_options(
+        text, language, seed, top_k, top_p, temperature, repetition_penalty, noise_scale, speed
+    )
     chunks = TextChunker(language, max_chars).chunk(text)
     waveforms: list[np.ndarray] = []
     sample_rate = None

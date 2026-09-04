@@ -31,7 +31,16 @@ def test_output_path_is_namespaced_and_rejects_escape(tmp_path: Path):
     expected = (tmp_path / "speaker_001" / "folder" / "article.wav").resolve()
     assert resolve_output_path(tmp_path, "speaker_001", Path("folder/article.wav")) == expected
 
-    for value in (Path("../escape.wav"), Path("C:/escape.wav"), Path("bad.mp3"), Path(".")):
+    for value in (
+        Path("../escape.wav"),
+        Path("C:/escape.wav"),
+        Path("bad.mp3"),
+        Path("."),
+        Path("article.infer/chunks/000001.wav"),
+        Path("article.infer./chunks/000001.wav"),
+        Path("folder /article.wav"),
+        Path("folder:stream/article.wav"),
+    ):
         with pytest.raises(ValueError):
             resolve_output_path(tmp_path, "speaker_001", value)
 
@@ -139,3 +148,29 @@ def test_job_rejects_tampered_manifest_request(tmp_path: Path):
 
     with pytest.raises(ValueError, match="--overwrite"):
         run_synthesis_job(session, "text", "en", output)
+
+
+def test_overwrite_validates_decoding_options_before_removing_existing_job(tmp_path: Path):
+    session = FakeSession()
+    output = resolve_output_path(tmp_path, session.identity.model_name, Path("article.wav"))
+    run_synthesis_job(session, "text", "en", output)
+    original_output = output.read_bytes()
+    original_manifest = (output.with_suffix(".infer") / "manifest.json").read_bytes()
+
+    with pytest.raises(ValueError, match="top_k"):
+        run_synthesis_job(session, "text", "en", output, overwrite=True, top_k=0)
+
+    assert output.read_bytes() == original_output
+    assert (output.with_suffix(".infer") / "manifest.json").read_bytes() == original_manifest
+
+
+def test_overwrite_requires_a_real_boolean_before_removing_existing_job(tmp_path: Path):
+    session = FakeSession()
+    output = resolve_output_path(tmp_path, session.identity.model_name, Path("article.wav"))
+    run_synthesis_job(session, "text", "en", output)
+    original_output = output.read_bytes()
+
+    with pytest.raises(ValueError, match="overwrite"):
+        run_synthesis_job(session, "text", "en", output, overwrite="false")
+
+    assert output.read_bytes() == original_output

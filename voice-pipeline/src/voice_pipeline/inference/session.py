@@ -58,6 +58,9 @@ class InferenceSession:
         reference_language: str | None = None,
     ) -> "InferenceSession":
         _validate_reference_override(reference_audio, reference_text, reference_language)
+        override_audio = Path(reference_audio).resolve() if reference_audio is not None else None
+        if override_audio is not None and not override_audio.is_file():
+            raise FileNotFoundError(override_audio)
         bundle = ModelBundle.load(Path(bundle_path))
         profile = ProfileRegistry.get(bundle.profile)
         device = torch.device(device)
@@ -92,9 +95,7 @@ class InferenceSession:
             selected_text = bundle.reference.text
             selected_language = bundle.reference.language
         else:
-            selected_audio = Path(reference_audio).resolve()
-            if not selected_audio.is_file():
-                raise FileNotFoundError(selected_audio)
+            selected_audio = override_audio
             selected_text = reference_text
             selected_language = reference_language
         reference = build_reference_condition(
@@ -140,7 +141,7 @@ class InferenceSession:
         noise_scale: float = 0.5,
         speed: float = 1.0,
     ) -> InferenceResult:
-        _validate_options(
+        validate_synthesis_options(
             text, language, seed, top_k, top_p, temperature, repetition_penalty, noise_scale, speed
         )
         with self._lock, _fixed_seed(seed, self.device):
@@ -189,7 +190,9 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validate_options(text, language, seed, top_k, top_p, temperature, repetition_penalty, noise_scale, speed):
+def validate_synthesis_options(
+    text, language, seed, top_k, top_p, temperature, repetition_penalty, noise_scale, speed
+) -> None:
     if not isinstance(text, str) or not text.strip():
         raise ValueError("text must not be empty")
     if language not in {"zh", "ja", "en", "mixed"}:
@@ -232,4 +235,4 @@ def _fixed_seed(seed: int, device: torch.device):
         np.random.set_state(numpy_state)
 
 
-__all__ = ["InferenceSession"]
+__all__ = ["InferenceSession", "validate_synthesis_options"]

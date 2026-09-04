@@ -287,6 +287,21 @@ def test_reference_override_rejects_partial_inputs_before_loading(monkeypatch, o
         InferenceSession.load("bundle", "cpu", **options)
 
 
+def test_missing_reference_override_is_rejected_before_model_bundle_loading(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(
+        session_module.ModelBundle,
+        "load",
+        lambda path: (_ for _ in ()).throw(AssertionError("must reject missing audio first")),
+    )
+    with pytest.raises(FileNotFoundError):
+        InferenceSession.load(
+            "bundle",
+            "cpu",
+            reference_audio=tmp_path / "missing.wav",
+            reference_language="ja",
+        )
+
+
 def test_session_serializes_concurrent_synthesis(monkeypatch):
     identity = InferenceIdentity("speaker", "1" * 64, "2" * 64, "3" * 64, None, "ja")
     condition = ReferenceCondition(
