@@ -63,70 +63,79 @@ class S2Dataset(Dataset[S2Item]):
         return self._load(self._sample_ids[self._indices[index]])
 
     def _load(self, sample_id: str) -> S2Item:
-        text = self._load_text(sample_id)
-        wav, spec = self._load_wav(sample_id)
-        ssl = self._load_tensor(sample_id, "hubert")
-        sv = self._load_tensor(sample_id, "sv")
-        if ssl.ndim != 3 or ssl.shape[:2] != (1, 768) or not ssl.is_floating_point():
-            raise ValueError(f"{sample_id} has invalid hubert shape or dtype")
-        if not torch.isfinite(ssl).all():
-            raise ValueError(f"{sample_id} has non-finite hubert tensor")
-        if ssl.shape[-1] == spec.shape[-1] - 1:
-            ssl = F.pad(ssl.float(), (0, 1), mode="replicate").to(ssl.dtype)
-        elif ssl.shape[-1] != spec.shape[-1]:
-            raise ValueError(f"{sample_id} has mismatched hubert and spectrogram frames")
-        if sv.ndim != 2 or sv.shape != (1, 20480) or not sv.is_floating_point():
-            raise ValueError(f"{sample_id} has invalid sv shape or dtype")
-        if not torch.isfinite(sv).all():
-            raise ValueError(f"{sample_id} has non-finite sv tensor")
-        return ssl.contiguous(), spec, wav, text, sv.contiguous()
+        return load_s2_item(self.preprocess_dir, sample_id)
 
-    def _load_text(self, sample_id: str) -> torch.Tensor:
-        path = self.preprocess_dir / "text" / f"{sample_id}.json"
-        try:
-            row = json.loads(path.read_text(encoding="utf-8"))
-            phone_ids = row["phone_ids"]
-        except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-            raise ValueError(f"{sample_id} has invalid text artifact: {error}") from error
-        if (
-            row.get("sample_id") != sample_id
-            or not isinstance(phone_ids, list)
-            or not phone_ids
-            or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in phone_ids)
-        ):
-            raise ValueError(f"{sample_id} has invalid text phone_ids")
-        return torch.tensor(phone_ids, dtype=torch.long)
 
-    def _load_wav(self, sample_id: str) -> tuple[torch.Tensor, torch.Tensor]:
-        path = self.preprocess_dir / "wav32k" / f"{sample_id}.wav"
-        try:
-            with wave.open(str(path), "rb") as stream:
-                channels = stream.getnchannels()
-                sample_width = stream.getsampwidth()
-                sample_rate = stream.getframerate()
-                frame_count = stream.getnframes()
-                payload = stream.readframes(frame_count)
-        except (OSError, EOFError, wave.Error) as error:
-            raise ValueError(f"{sample_id} has invalid wav32k artifact: {error}") from error
-        duration = frame_count / sample_rate if sample_rate else 0.0
-        if channels != 1 or sample_width != 2 or sample_rate != 32000 or not 0.6 < duration < 54.0:
-            raise ValueError(f"{sample_id} has invalid wav32k format or duration")
-        if len(payload) != frame_count * channels * sample_width:
-            raise ValueError(f"{sample_id} has truncated wav32k payload")
-        samples = torch.frombuffer(bytearray(payload), dtype=torch.int16).to(torch.float32) / 32768.0
-        wav = samples.unsqueeze(0)
-        spec = spectrogram_torch(wav, 2048, 32000, 640, 2048, center=False).squeeze(0)
-        return wav, spec
 
-    def _load_tensor(self, sample_id: str, directory: str) -> torch.Tensor:
-        path = self.preprocess_dir / directory / f"{sample_id}.pt"
-        try:
-            value = torch.load(path, map_location="cpu", weights_only=True)
-        except (OSError, pickle.UnpicklingError, RuntimeError, TypeError, ValueError) as error:
-            raise ValueError(f"{sample_id} has invalid {directory} artifact: {error}") from error
-        if not isinstance(value, torch.Tensor):
-            raise ValueError(f"{sample_id} has invalid {directory} artifact")
-        return value
+def load_s2_item(preprocess_dir: Path, sample_id: str) -> S2Item:
+    root = Path(preprocess_dir)
+    text = _load_text(root, sample_id)
+    wav, spec = _load_wav(root, sample_id)
+    ssl = _load_tensor(root, sample_id, "hubert")
+    sv = _load_tensor(root, sample_id, "sv")
+    if ssl.ndim != 3 or ssl.shape[:2] != (1, 768) or not ssl.is_floating_point():
+        raise ValueError(f"{sample_id} has invalid hubert shape or dtype")
+    if not torch.isfinite(ssl).all():
+        raise ValueError(f"{sample_id} has non-finite hubert tensor")
+    if ssl.shape[-1] == spec.shape[-1] - 1:
+        ssl = F.pad(ssl.float(), (0, 1), mode="replicate").to(ssl.dtype)
+    elif ssl.shape[-1] != spec.shape[-1]:
+        raise ValueError(f"{sample_id} has mismatched hubert and spectrogram frames")
+    if sv.ndim != 2 or sv.shape != (1, 20480) or not sv.is_floating_point():
+        raise ValueError(f"{sample_id} has invalid sv shape or dtype")
+    if not torch.isfinite(sv).all():
+        raise ValueError(f"{sample_id} has non-finite sv tensor")
+    return ssl.contiguous(), spec, wav, text, sv.contiguous()
+
+
+def _load_text(preprocess_dir: Path, sample_id: str) -> torch.Tensor:
+    path = preprocess_dir / "text" / f"{sample_id}.json"
+    try:
+        row = json.loads(path.read_text(encoding="utf-8"))
+        phone_ids = row["phone_ids"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise ValueError(f"{sample_id} has invalid text artifact: {error}") from error
+    if (
+        row.get("sample_id") != sample_id
+        or not isinstance(phone_ids, list)
+        or not phone_ids
+        or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in phone_ids)
+    ):
+        raise ValueError(f"{sample_id} has invalid text phone_ids")
+    return torch.tensor(phone_ids, dtype=torch.long)
+
+
+def _load_wav(preprocess_dir: Path, sample_id: str) -> tuple[torch.Tensor, torch.Tensor]:
+    path = preprocess_dir / "wav32k" / f"{sample_id}.wav"
+    try:
+        with wave.open(str(path), "rb") as stream:
+            channels = stream.getnchannels()
+            sample_width = stream.getsampwidth()
+            sample_rate = stream.getframerate()
+            frame_count = stream.getnframes()
+            payload = stream.readframes(frame_count)
+    except (OSError, EOFError, wave.Error) as error:
+        raise ValueError(f"{sample_id} has invalid wav32k artifact: {error}") from error
+    duration = frame_count / sample_rate if sample_rate else 0.0
+    if channels != 1 or sample_width != 2 or sample_rate != 32000 or not 0.6 < duration < 54.0:
+        raise ValueError(f"{sample_id} has invalid wav32k format or duration")
+    if len(payload) != frame_count * channels * sample_width:
+        raise ValueError(f"{sample_id} has truncated wav32k payload")
+    samples = torch.frombuffer(bytearray(payload), dtype=torch.int16).to(torch.float32) / 32768.0
+    wav = samples.unsqueeze(0)
+    spec = spectrogram_torch(wav, 2048, 32000, 640, 2048, center=False).squeeze(0)
+    return wav, spec
+
+
+def _load_tensor(preprocess_dir: Path, sample_id: str, directory: str) -> torch.Tensor:
+    path = preprocess_dir / directory / f"{sample_id}.pt"
+    try:
+        value = torch.load(path, map_location="cpu", weights_only=True)
+    except (OSError, pickle.UnpicklingError, RuntimeError, TypeError, ValueError) as error:
+        raise ValueError(f"{sample_id} has invalid {directory} artifact: {error}") from error
+    if not isinstance(value, torch.Tensor):
+        raise ValueError(f"{sample_id} has invalid {directory} artifact")
+    return value
 
 
 class S2Collate:

@@ -11,6 +11,8 @@ from voice_pipeline.core.gpt_sovits.features.speaker import SpeakerEncoder
 from voice_pipeline.core.gpt_sovits.frontend.multilingual import MultilingualFrontend
 from voice_pipeline.pipeline.graph import StageGraph
 from voice_pipeline.training.experiment import Experiment
+from voice_pipeline.training.s1.data import load_s1_item
+from voice_pipeline.training.s2.data import load_s2_item
 
 from .artifacts import atomic_write_text, sha256_file, sha256_tree
 from .base import StageContext
@@ -108,11 +110,27 @@ def build_preprocess_pipeline(
         {"device": config.device, "precision": effective_precision, "resume": config.resume},
         asset_digests,
     )
+    eligibility_validator = None
+    if selected_stage is None:
+        def eligibility_validator(record) -> None:
+            if config.validate_s1:
+                load_s1_item(
+                    experiment.preprocess_dir,
+                    record.sample_id,
+                    max_sec=config.s1_max_sec,
+                    hz=config.s1_hz,
+                    min_ps_ratio=config.s1_min_ps_ratio,
+                    max_ps_ratio=config.s1_max_ps_ratio,
+                )
+            if config.validate_s2:
+                load_s2_item(experiment.preprocess_dir, record.sample_id)
+
     return PreprocessPipeline(
         stages,
         graph,
         RunState(experiment.preprocess_dir / "state.json"),
         context,
+        eligibility_validator=eligibility_validator,
     )
 
 

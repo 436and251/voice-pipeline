@@ -492,9 +492,8 @@ runs/
 
 训练明确成功后，训练入口应调用 `cleanup_after_training(..., True)`：默认只删除
 目标目录内的 `*.tmp` 和已 quarantine 且不在 valid 集合中的已知阶段产物，保留
-所有正式预处理结果。训练失败或中断时传入 `False`，不删除任何缓存。实际训练
-入口会逐阶段接入该生命周期钩子。当前 S2 trainer 已接入：只有达到目标
-iteration 且最终 checkpoint 原子写入成功后才执行清理；异常或中断不清理。
+所有正式预处理结果。当前 S1/S2 trainer 都只在达到目标 step 且最终 checkpoint
+原子写入成功后执行清理；异常或中断不清理。
 
 ## 14. State 与 Cache
 
@@ -536,7 +535,7 @@ s1:
 
 训练日志明确区分 mini_batch_step、optimizer_step、effective_batch。
 
-Task 13 当前提供内部 Python trainer 与内部恢复 checkpoint；训练 CLI/YAML 映射及用户可部署的 S1 权重导出尚未实现，分别由后续任务负责。
+当前训练 CLI/YAML 已接入该 trainer；checkpoint 使用内部精确恢复格式，后续通过 ModelBundle export 转成用户可部署的 S1 推理权重。
 
 第一版训练控制的核心不是 epoch，而是：
 
@@ -605,8 +604,7 @@ FP16 保留 PyTorch / 官方脚本的默认动态 `GradScaler`。早期 batch �
 
 当前 `voice_pipeline.training.s2.S2Trainer` 已实现数据校验、官方少一帧 HuBERT
 末帧复制、九张量 collate、四组 G AdamW、D/G 更新、epoch scheduler、结构化日志、
-原子 checkpoint、精确 cursor/RNG resume 与成功后缓存清理。CLI/YAML 接线仍由后续
-训练入口任务负责。
+原子 checkpoint、精确 cursor/RNG resume、成功后缓存清理以及 CLI/YAML 接线。
 
 ## 17. 第一版不修改 Loss
 

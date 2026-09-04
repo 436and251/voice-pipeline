@@ -77,61 +77,81 @@ class S1Dataset(Dataset[S1Item]):
         return self._items[self._indices[index]]
 
     def _load(self, sample_id: str) -> S1Item:
-        metadata_path = self.preprocess_dir / "text" / f"{sample_id}.json"
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            phone_ids = metadata["phone_ids"]
-        except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-            raise ValueError(f"{sample_id} has invalid S1 text artifact: {error}") from error
-        if (
-            metadata.get("sample_id") != sample_id
-            or not isinstance(phone_ids, list)
-            or not phone_ids
-            or any(
-                isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 732
-                for value in phone_ids
-            )
-        ):
-            raise ValueError(f"{sample_id} has invalid S1 phone IDs")
-
-        bert = self._load_tensor(sample_id, "text", f"{sample_id}.bert.pt")
-        if (
-            bert.ndim != 2
-            or bert.shape != (1024, len(phone_ids))
-            or not bert.is_floating_point()
-            or not torch.isfinite(bert).all()
-        ):
-            raise ValueError(f"{sample_id} has invalid BERT shape, dtype, or values")
-
-        semantic = self._load_tensor(sample_id, "semantic", f"{sample_id}.pt")
-        if semantic.ndim != 1 or semantic.dtype != torch.int64 or semantic.numel() == 0:
-            raise ValueError(f"{sample_id} has invalid semantic shape or dtype")
-        if semantic.numel() > self.max_sec * self.hz:
-            raise ValueError(f"{sample_id} exceeds S1 duration limit")
-        if semantic.min().item() < 0 or semantic.max().item() > 1023:
-            raise ValueError(f"{sample_id} has invalid semantic token range")
-        if len(phone_ids) > self.max_sec * self.hz / 2.5:
-            raise ValueError(f"{sample_id} exceeds S1 phone length limit")
-        phone_rate = len(phone_ids) / (semantic.numel() / self.hz)
-        if not self.min_ps_ratio <= phone_rate <= self.max_ps_ratio:
-            raise ValueError(f"{sample_id} has S1 phone/sec outside official bounds")
-
-        return S1Item(
+        return load_s1_item(
+            self.preprocess_dir,
             sample_id,
-            torch.tensor(phone_ids, dtype=torch.int64),
-            semantic.contiguous(),
-            bert.float().contiguous(),
+            max_sec=self.max_sec,
+            hz=self.hz,
+            min_ps_ratio=self.min_ps_ratio,
+            max_ps_ratio=self.max_ps_ratio,
         )
 
-    def _load_tensor(self, sample_id: str, directory: str, filename: str) -> torch.Tensor:
-        path = self.preprocess_dir / directory / filename
-        try:
-            value = torch.load(path, map_location="cpu", weights_only=True)
-        except (OSError, pickle.UnpicklingError, RuntimeError, TypeError, ValueError) as error:
-            raise ValueError(f"{sample_id} has invalid {directory} tensor: {error}") from error
-        if not isinstance(value, torch.Tensor):
-            raise ValueError(f"{sample_id} has invalid {directory} tensor")
-        return value
+
+def load_s1_item(
+    preprocess_dir: Path,
+    sample_id: str,
+    *,
+    max_sec: int = 57,
+    hz: int = 25,
+    min_ps_ratio: float = 3.0,
+    max_ps_ratio: float = 25.0,
+) -> S1Item:
+    metadata_path = Path(preprocess_dir) / "text" / f"{sample_id}.json"
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        phone_ids = metadata["phone_ids"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise ValueError(f"{sample_id} has invalid S1 text artifact: {error}") from error
+    if (
+        metadata.get("sample_id") != sample_id
+        or not isinstance(phone_ids, list)
+        or not phone_ids
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 732
+            for value in phone_ids
+        )
+    ):
+        raise ValueError(f"{sample_id} has invalid S1 phone IDs")
+
+    bert = _load_tensor(Path(preprocess_dir), sample_id, "text", f"{sample_id}.bert.pt")
+    if (
+        bert.ndim != 2
+        or bert.shape != (1024, len(phone_ids))
+        or not bert.is_floating_point()
+        or not torch.isfinite(bert).all()
+    ):
+        raise ValueError(f"{sample_id} has invalid BERT shape, dtype, or values")
+
+    semantic = _load_tensor(Path(preprocess_dir), sample_id, "semantic", f"{sample_id}.pt")
+    if semantic.ndim != 1 or semantic.dtype != torch.int64 or semantic.numel() == 0:
+        raise ValueError(f"{sample_id} has invalid semantic shape or dtype")
+    if semantic.numel() > max_sec * hz:
+        raise ValueError(f"{sample_id} exceeds S1 duration limit")
+    if semantic.min().item() < 0 or semantic.max().item() > 1023:
+        raise ValueError(f"{sample_id} has invalid semantic token range")
+    if len(phone_ids) > max_sec * hz / 2.5:
+        raise ValueError(f"{sample_id} exceeds S1 phone length limit")
+    phone_rate = len(phone_ids) / (semantic.numel() / hz)
+    if not min_ps_ratio <= phone_rate <= max_ps_ratio:
+        raise ValueError(f"{sample_id} has S1 phone/sec outside official bounds")
+
+    return S1Item(
+        sample_id,
+        torch.tensor(phone_ids, dtype=torch.int64),
+        semantic.contiguous(),
+        bert.float().contiguous(),
+    )
+
+
+def _load_tensor(preprocess_dir: Path, sample_id: str, directory: str, filename: str) -> torch.Tensor:
+    path = preprocess_dir / directory / filename
+    try:
+        value = torch.load(path, map_location="cpu", weights_only=True)
+    except (OSError, pickle.UnpicklingError, RuntimeError, TypeError, ValueError) as error:
+        raise ValueError(f"{sample_id} has invalid {directory} tensor: {error}") from error
+    if not isinstance(value, torch.Tensor):
+        raise ValueError(f"{sample_id} has invalid {directory} tensor")
+    return value
 
 
 class S1Collate:
@@ -160,4 +180,4 @@ class S1Collate:
         }
 
 
-__all__ = ["S1Collate", "S1Dataset", "S1Item"]
+__all__ = ["S1Collate", "S1Dataset", "S1Item", "load_s1_item"]

@@ -6,9 +6,29 @@ from typer.testing import CliRunner
 from voice_pipeline.cli import train as train_cli
 from voice_pipeline.cli.main import app
 from voice_pipeline.training.config import TrainingConfig
+from voice_pipeline.training.preprocess.config import PreprocessConfig
 
 
 runner = CliRunner()
+
+
+def test_committed_training_example_is_shared_by_preprocess_and_train(tmp_path: Path) -> None:
+    project_root = Path(__file__).parents[1]
+    manifest = tmp_path / "data.list"
+    manifest.write_text("", encoding="utf-8")
+    config = tmp_path / "train.yaml"
+    config.write_text(
+        (project_root / "configs/train.example.yaml")
+        .read_text(encoding="utf-8")
+        .replace("D:/dataset/data.list", manifest.as_posix()),
+        encoding="utf-8",
+    )
+
+    preprocess = PreprocessConfig.from_yaml(config, project_root=project_root)
+    training = TrainingConfig.from_yaml(config, project_root=project_root)
+
+    assert preprocess.manifest == manifest
+    assert training.s1 is not None and training.s2 is not None
 
 
 def _write_config(tmp_path: Path, *, extra_s1: str = "", extra_s2: str = "") -> Path:

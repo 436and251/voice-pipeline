@@ -40,6 +40,41 @@ def test_config_reads_existing_readme_shape(tmp_path):
     assert config.resume is True
 
 
+def test_config_carries_training_eligibility_limits(tmp_path):
+    path = write_config(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + """s1:
+  enabled: true
+  max_sec: 42
+  hz: 25
+  min_ps_ratio: 4.0
+  max_ps_ratio: 20.0
+s2:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    config = PreprocessConfig.from_yaml(path, project_root=tmp_path)
+
+    assert config.validate_s1 is True
+    assert config.validate_s2 is False
+    assert (config.s1_max_sec, config.s1_hz) == (42, 25)
+    assert (config.s1_min_ps_ratio, config.s1_max_ps_ratio) == (4.0, 20.0)
+
+
+def test_config_rejects_overflowing_training_eligibility_limit(tmp_path):
+    path = write_config(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8") + f"s1:\n  min_ps_ratio: {10 ** 400}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="min_ps_ratio"):
+        PreprocessConfig.from_yaml(path, project_root=tmp_path)
+
+
 def test_config_rejects_non_v2proplus_profile_and_malformed_yaml(tmp_path):
     with pytest.raises(ValueError, match="v2ProPlus"):
         PreprocessConfig.from_yaml(write_config(tmp_path, "v4"), project_root=tmp_path)

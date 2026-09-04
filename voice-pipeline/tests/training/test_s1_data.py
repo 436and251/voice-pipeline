@@ -6,7 +6,7 @@ import shutil
 import pytest
 import torch
 
-from voice_pipeline.training.s1.data import S1Collate, S1Dataset, S1Item
+from voice_pipeline.training.s1.data import S1Collate, S1Dataset, S1Item, load_s1_item
 from voice_pipeline.training.sampler import DeterministicEpochSampler
 
 
@@ -23,6 +23,11 @@ def test_dataset_reads_fixed_samples_and_applies_official_repetition() -> None:
     assert item.phoneme_ids.dtype == torch.int64 and item.phoneme_ids.shape == (8,)
     assert item.semantic_ids.dtype == torch.int64 and item.semantic_ids.shape == (25,)
     assert item.bert_feature.dtype == torch.float32 and item.bert_feature.shape == (1024, 8)
+
+
+def test_single_item_loader_applies_the_same_s1_validation() -> None:
+    item = load_s1_item(FIXTURE, "s2-smoke-01")
+    assert item.sample_id == "s2-smoke-01"
 
 
 def test_collate_uses_official_padding_values() -> None:

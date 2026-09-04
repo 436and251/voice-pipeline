@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 from voice_pipeline.common.state import RunState, StageStatus
 from voice_pipeline.pipeline.graph import StageGraph
@@ -54,6 +54,7 @@ class PreprocessPipeline:
         graph: StageGraph,
         state: RunState,
         context: StageContext,
+        eligibility_validator: Callable[[ManifestRecord], None] | None = None,
     ):
         if set(stages) != set(graph.dependencies):
             raise ValueError("stage map and dependency graph must contain the same stages")
@@ -61,6 +62,7 @@ class PreprocessPipeline:
         self.graph = graph
         self.state = state
         self.context = context
+        self.eligibility_validator = eligibility_validator
 
     def run(
         self,
@@ -150,6 +152,30 @@ class PreprocessPipeline:
                 self._write_indexes(indexes)
                 index_path = self._index_path(stage_name)
                 self.state.complete(stage_name, outputs=[str(index_path)], warning_count=warnings)
+
+        if selected_stage is None and self.eligibility_validator is not None:
+            eligibility_changed = False
+            for record in records:
+                if record.sample_id in quarantine:
+                    continue
+                try:
+                    self.eligibility_validator(record)
+                except (OSError, RuntimeError, ValueError) as error:
+                    eligibility_changed = True
+                    quarantine[record.sample_id] = QuarantineEntry(
+                        key=record.sample_id,
+                        line_no=record.line_no,
+                        sample_id=record.sample_id,
+                        audio_path=str(record.item.audio_path),
+                        stage="training",
+                        category="ineligible",
+                        message=str(error),
+                    )
+                    self._purge_sample(record.sample_id, indexes)
+                    self._write_quarantine(quarantine_path, quarantine)
+                    self._check_limit(quarantine, allowed_bad)
+            if eligibility_changed:
+                self._write_indexes(indexes)
 
         valid_records = [record for record in records if record.sample_id not in quarantine]
         if not valid_records:

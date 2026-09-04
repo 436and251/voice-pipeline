@@ -9,7 +9,7 @@ import wave
 import pytest
 import torch
 
-from voice_pipeline.training.s2.data import S2Collate, S2Dataset
+from voice_pipeline.training.s2.data import S2Collate, S2Dataset, load_s2_item
 from voice_pipeline.training.sampler import DeterministicEpochSampler
 
 
@@ -40,6 +40,15 @@ def test_dataset_reads_five_samples_and_applies_official_repetition() -> None:
     assert spec.shape == (1025, 50)
     assert wav.shape == (1, 32_000)
     assert text.dtype == torch.int64 and text.numel() > 0
+    assert sv.shape == (1, 20_480)
+
+
+def test_single_item_loader_applies_the_same_s2_validation() -> None:
+    ssl, spec, wav, text, sv = load_s2_item(FIXTURE / "preprocess", "s2-smoke-01")
+    assert ssl.shape == (1, 768, 50)
+    assert spec.shape == (1025, 50)
+    assert wav.shape == (1, 32_000)
+    assert text.numel() > 0
     assert sv.shape == (1, 20_480)
 
 

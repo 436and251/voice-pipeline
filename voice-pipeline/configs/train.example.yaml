@@ -9,6 +9,21 @@ device:
   device: cuda:0
   precision: fp16
 
+dataset:
+  manifest: D:/dataset/data.list
+
+objective:
+  training_languages:
+    - ja
+  target_languages:
+    - zh
+    - ja
+    - en
+  cross_language_preservation: strict
+
+preprocess:
+  resume: true
+
 s2:
   enabled: true
   batch_size: 2

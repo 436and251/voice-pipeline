@@ -54,11 +54,17 @@ def stages(calls, *, failures=None):
     }
 
 
-def make_pipeline(tmp_path, stage_map):
+def make_pipeline(tmp_path, stage_map, *, eligibility_validator=None):
     experiment = Experiment.create("run", tmp_path)
     context = StageContext(experiment, V2PROPLUS, {}, {})
     graph = StageGraph({name: stage.dependencies for name, stage in stage_map.items()})
-    return PreprocessPipeline(stage_map, graph, RunState(experiment.preprocess_dir / "state.json"), context)
+    return PreprocessPipeline(
+        stage_map,
+        graph,
+        RunState(experiment.preprocess_dir / "state.json"),
+        context,
+        eligibility_validator=eligibility_validator,
+    )
 
 
 def read_index_ids(root):
@@ -86,6 +92,20 @@ def test_one_stage_failure_quarantines_sample_from_every_stage_index(tmp_path):
 
     assert summary.valid_sample_ids == [f"s{i}" for i in range(5)]
     assert summary.quarantined[0].sample_id == "s5"
+    assert "s5" not in read_index_ids(tmp_path)
+
+
+def test_training_ineligible_sample_uses_the_same_quarantine_allowance(tmp_path):
+    def validate(record):
+        if record.sample_id == "s5":
+            raise ValueError("audio duration must be between 0.6 and 54 seconds")
+
+    pipeline = make_pipeline(tmp_path, stages([]), eligibility_validator=validate)
+    summary = pipeline.run(records(6), [])
+
+    assert summary.valid_sample_ids == [f"s{i}" for i in range(5)]
+    assert summary.quarantined[0].stage == "training"
+    assert summary.quarantined[0].category == "ineligible"
     assert "s5" not in read_index_ids(tmp_path)
 
 
