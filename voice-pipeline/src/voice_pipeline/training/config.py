@@ -256,7 +256,9 @@ def _validate_shared_sections(payload: dict) -> None:
         "dataset": {"manifest"},
         "objective": {"training_languages", "target_languages", "cross_language_preservation"},
         "preprocess": {"resume"},
-        "evaluation": {"enabled", "reference", "speaker_references", "suites", "models", "pairing"},
+        "evaluation": {
+            "enabled", "reference", "speaker_references", "suites", "models", "pairing", "constraints", "ranking"
+        },
     }
     for name, allowed in schemas.items():
         if name not in payload:
@@ -293,6 +295,8 @@ def _validate_shared_sections(payload: dict) -> None:
             ("suites", {"zh", "ja", "en", "mixed"}),
             ("models", {"asr", "speaker", "cache_dir"}),
             ("pairing", {"s2_keep", "shortlist_size"}),
+            ("constraints", {"min_speaker_similarity", "max_cer", "max_wer", "min_language_consistency"}),
+            ("ranking", {"speaker", "pronunciation", "language_consistency", "prosody"}),
         ):
             if field in evaluation:
                 nested = evaluation[field]

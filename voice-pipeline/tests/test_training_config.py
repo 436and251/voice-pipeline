@@ -105,6 +105,16 @@ evaluation:
   pairing:
     s2_keep: 2
     shortlist_size: 3
+  constraints:
+    min_speaker_similarity: {zh: 0.70, ja: 0.75, en: 0.70}
+    max_cer: {zh: 0.30, ja: 0.25}
+    max_wer: {en: 0.35}
+    min_language_consistency: {zh: 0.50, ja: 0.50, en: 0.50, mixed: 0.50}
+  ranking:
+    speaker: 0.60
+    pronunciation: 0.25
+    language_consistency: 0.10
+    prosody: 0.05
 """,
         encoding="utf-8",
     )
@@ -119,6 +129,8 @@ evaluation:
     assert config.evaluation.cache_dir == tmp_path / "hf-cache"
     assert config.evaluation.pairing.s2_keep == 2
     assert config.evaluation.pairing.shortlist_size == 3
+    assert config.evaluation.constraints.min_speaker_similarity["ja"] == 0.75
+    assert config.evaluation.ranking.speaker == 0.60
 
 
 @pytest.mark.parametrize(
