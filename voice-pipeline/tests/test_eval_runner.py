@@ -8,7 +8,8 @@ from voice_pipeline.common.model_bundle import BundleReference
 from voice_pipeline.evaluation import runner as runner_module
 from voice_pipeline.evaluation.candidates import CandidatePair, CheckpointRef
 from voice_pipeline.evaluation.config import EvaluationConfig, EvaluationPairing
-from voice_pipeline.evaluation.runner import generate_candidate
+from voice_pipeline.evaluation.base import Transcript
+from voice_pipeline.evaluation.runner import evaluate_generation, generate_candidate
 from voice_pipeline.evaluation.suite import EvaluationCase, EvaluationSuite
 from voice_pipeline.inference.result import InferenceIdentity, InferenceResult
 
@@ -131,3 +132,61 @@ def test_generation_records_one_failed_sample_and_continues(tmp_path: Path, monk
     assert result.samples[0].error_type == "RuntimeError"
     assert result.samples[1].status == "completed"
     assert result.samples[1].wav_path.is_file()
+
+
+class FakeASR:
+    def transcribe(self, audio: Path, language: str | None) -> Transcript:
+        detected = audio.stem.split("-", 1)[0]
+        return Transcript("sample", detected if language is None else language, 0.9)
+
+
+class FakeSpeakerEvaluator:
+    def similarity(self, audio: Path, centroid: np.ndarray) -> float:
+        return 0.9
+
+
+def test_evaluation_aggregates_each_language_and_worst_similarity(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(runner_module, "build_candidate_bundle", _fake_builder)
+    generation = generate_candidate(
+        _config(tmp_path),
+        _pair(tmp_path),
+        _suite(),
+        session_factory=lambda *args, **kwargs: FakeSession(),
+    )
+
+    evaluated = evaluate_generation(
+        generation,
+        asr=FakeASR(),
+        speaker=FakeSpeakerEvaluator(),
+        speaker_centroid=np.array([1.0], dtype=np.float32),
+    )
+
+    assert evaluated.status == "completed"
+    assert evaluated.summary["worst_similarity"] == pytest.approx(0.9)
+    assert evaluated.by_language["en"]["pronunciation"] == 0.0
+    assert evaluated.by_language["mixed"]["language_consistency"] == 1.0
+
+
+def test_empty_asr_transcript_fails_candidate_without_losing_other_metrics(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(runner_module, "build_candidate_bundle", _fake_builder)
+    generation = generate_candidate(
+        _config(tmp_path),
+        _pair(tmp_path),
+        EvaluationSuite((EvaluationCase("en-001", "en", "sample"),)),
+        session_factory=lambda *args, **kwargs: FakeSession(),
+    )
+
+    class EmptyASR:
+        def transcribe(self, audio: Path, language: str | None) -> Transcript:
+            return Transcript("", language, 1.0)
+
+    evaluated = evaluate_generation(
+        generation,
+        asr=EmptyASR(),
+        speaker=FakeSpeakerEvaluator(),
+        speaker_centroid=np.array([1.0], dtype=np.float32),
+    )
+
+    assert evaluated.status == "failed"
+    assert evaluated.samples[0].error_type == "ValueError"
+    assert "empty" in evaluated.samples[0].error_message

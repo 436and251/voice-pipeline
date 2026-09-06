@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 import uuid
 
@@ -12,7 +13,11 @@ from voice_pipeline.inference.job import run_synthesis_job
 from voice_pipeline.inference.session import InferenceSession
 
 from .candidates import CandidatePair
+from .base import MetricResult, Transcript
 from .config import EvaluationConfig
+from .language_consistency import language_consistency
+from .pronunciation import evaluate_pronunciation
+from .prosody import evaluate_prosody
 from .suite import EvaluationSuite
 
 
@@ -47,6 +52,26 @@ class CandidateGeneration:
     samples: tuple[GeneratedSample, ...]
     generated: int
     resumed: int
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluatedSample:
+    case_id: str
+    language: str
+    status: str
+    transcript: Transcript | None
+    metrics: dict[str, MetricResult]
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateEvaluation:
+    pair_key: str
+    status: str
+    samples: tuple[EvaluatedSample, ...]
+    by_language: dict[str, dict[str, float]]
+    summary: dict[str, float]
 
 
 def generate_candidate(
@@ -130,6 +155,92 @@ def generate_candidate(
     manifest["status"] = status
     _write_json_atomic(manifest_path, manifest)
     return CandidateGeneration(pair.key, status, samples, generated, resumed)
+
+
+def evaluate_generation(
+    generation: CandidateGeneration,
+    *,
+    asr,
+    speaker,
+    speaker_centroid,
+) -> CandidateEvaluation:
+    evaluated: list[EvaluatedSample] = []
+    for sample in generation.samples:
+        if sample.status != "completed":
+            evaluated.append(
+                EvaluatedSample(
+                    sample.case_id,
+                    sample.language,
+                    "failed",
+                    None,
+                    {},
+                    sample.error_type,
+                    sample.error_message,
+                )
+            )
+            continue
+        try:
+            automatic = asr.transcribe(sample.wav_path, None)
+            transcript = automatic if sample.language == "mixed" else asr.transcribe(sample.wav_path, sample.language)
+            if not transcript.text.strip():
+                raise ValueError("ASR transcript is empty")
+            similarity = float(speaker.similarity(sample.wav_path, speaker_centroid))
+            if not math.isfinite(similarity):
+                raise ValueError("speaker similarity must be finite")
+            metrics = {
+                "speaker_similarity": MetricResult("speaker_similarity", similarity, {}, True),
+                "pronunciation": evaluate_pronunciation(sample.target_text, transcript, sample.language),
+                "language_consistency": language_consistency(
+                    sample.target_text,
+                    automatic.text,
+                    sample.language,
+                    detected_language=automatic.language,
+                    probability=automatic.language_probability,
+                ),
+                "prosody": evaluate_prosody(sample.wav_path, sample.target_text),
+            }
+            evaluated.append(
+                EvaluatedSample(sample.case_id, sample.language, "completed", transcript, metrics)
+            )
+        except Exception as error:
+            evaluated.append(
+                EvaluatedSample(
+                    sample.case_id,
+                    sample.language,
+                    "failed",
+                    None,
+                    {},
+                    type(error).__name__,
+                    str(error),
+                )
+            )
+    by_language = _aggregate_by_language(evaluated)
+    single_language_similarity = [
+        by_language[language]["speaker_similarity"]
+        for language in ("zh", "ja", "en")
+        if language in by_language and "speaker_similarity" in by_language[language]
+    ]
+    summary = {"worst_similarity": min(single_language_similarity)} if single_language_similarity else {}
+    status = "completed" if evaluated and all(sample.status == "completed" for sample in evaluated) else "failed"
+    return CandidateEvaluation(generation.pair_key, status, tuple(evaluated), by_language, summary)
+
+
+def _aggregate_by_language(samples: list[EvaluatedSample]) -> dict[str, dict[str, float]]:
+    grouped: dict[str, list[EvaluatedSample]] = {}
+    for sample in samples:
+        if sample.status == "completed":
+            grouped.setdefault(sample.language, []).append(sample)
+    result: dict[str, dict[str, float]] = {}
+    for language, language_samples in grouped.items():
+        names = {name for sample in language_samples for name in sample.metrics}
+        aggregated = {}
+        for name in names:
+            values = [sample.metrics[name].value for sample in language_samples if sample.metrics[name].available]
+            finite = [float(value) for value in values if value is not None and math.isfinite(value)]
+            if finite:
+                aggregated[name] = sum(finite) / len(finite)
+        result[language] = aggregated
+    return result
 
 
 def _request(config: EvaluationConfig, pair: CandidatePair, suite: EvaluationSuite) -> dict:
@@ -230,4 +341,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-__all__ = ["CandidateGeneration", "GeneratedSample", "generate_candidate"]
+__all__ = [
+    "CandidateEvaluation",
+    "CandidateGeneration",
+    "EvaluatedSample",
+    "GeneratedSample",
+    "evaluate_generation",
+    "generate_candidate",
+]
