@@ -711,17 +711,17 @@ hard constraints
 例如：
 
 ```yaml
-selection:
+evaluation:
   constraints:
     min_speaker_similarity:
-      zh: 0.80
-      ja: 0.85
-      en: 0.80
+      zh: 0.70
+      ja: 0.75
+      en: 0.70
     max_cer:
-      zh: 0.10
-      ja: 0.10
+      zh: 0.30
+      ja: 0.25
     max_wer:
-      en: 0.15
+      en: 0.35
 ```
 
 特别关注：
@@ -1021,9 +1021,8 @@ voice-pipeline preprocess all -c configs/train.yaml
 voice-pipeline preprocess stage sv -c configs/train.yaml
 voice-pipeline train s2 -c configs/train.yaml
 voice-pipeline train s1 -c configs/train.yaml
-voice-pipeline evaluate --run runs/speaker_001
-voice-pipeline select --run runs/speaker_001
-voice-pipeline export --run runs/speaker_001
+voice-pipeline evaluate -c configs/train.yaml --project-root .
+voice-pipeline export --run runs/speaker_001 --project-root . --select candidate_A
 ```
 
 推理：

@@ -233,16 +233,46 @@ voice-pipeline train s1 -c configs/train.local.yaml --project-root .
 不要把 S1 checkpoint 填给 S2，反之亦然，也不要使用导出后的推理权重恢复训练。
 checkpoint 文件名中的 step 必须与内部 cursor 一致，框架会在加载前严格校验结构。
 
-### 3.6 清理和当前流程边界
+### 3.6 自动评测与人工选择
+
+训练完成后运行：
+
+```powershell
+voice-pipeline evaluate -c configs/train.local.yaml --project-root .
+```
+
+评测器先用官方 Base S1 对全部 S2 checkpoint 做第一阶段筛选，再组合保留的 S2 与
+全部 S1 checkpoint。它使用 Faster-Whisper 计算中文/日文 CER、英文 WER 和语言一致性，
+使用独立 WavLM speaker encoder 计算跨语言音色相似度，并统计基础韵律。ASR 和 WavLM
+只参与离线评测，不会进入最终推理链路。
+
+结果位于 `runs/<目标人>/evaluation/`：
+
+```text
+stage1-report.md / stage1-results.json  # S2 初筛
+report.md / results.json                # S1+S2 全部组合
+shortlist.yaml                          # 通过硬约束的匿名候选
+listening/
+├── candidate_A/{zh,ja,en}.wav
+├── candidate_B/{zh,ja,en}.wav
+└── manifest.json
+```
+
+必须试听每个匿名候选的三种语言，再人工选择最终候选：
+
+```powershell
+voice-pipeline export --run runs/<目标人> --project-root . --select candidate_A
+```
+
+不要按 checkpoint step、单一 loss 或自动总分直接决定最终模型。阈值说明、模型缓存和
+调参方法见 `docs/evaluation.md`。
+
+### 3.7 清理规则
 
 某阶段达到目标 step 且最终 checkpoint 原子写入成功后，框架自动删除预处理目录内的
 `*.tmp` 和已 quarantine 样本的孤立阶段产物，保留正式预处理结果与训练 checkpoint。
-训练异常或被中断时不会清理，以便排查和恢复。
-
-当前版本已经实现预处理、S1/S2 训练和 checkpoint→CandidateBundle 转换，但自动
-评测、综合排序和生成 `evaluation/shortlist.yaml` 属于后续 Task19。你现在可以先完成
-训练并保留所有候选 checkpoint；在 evaluator 完成前，不要凭单一 loss 自动决定最终
-模型，也不要手写 shortlist 冒充综合评测结果。
+训练异常或被中断时不会清理，以便排查和恢复。评测成功后会删除可重建的
+`evaluation/work/`，保留评分、候选包和试听音频。
 
 ## 4. 使用正式模型推理
 
