@@ -7,7 +7,7 @@ import re
 import shutil
 import uuid
 
-from voice_pipeline.common.model_bundle import BundleReference, ModelBundle, Shortlist
+from voice_pipeline.common.model_bundle import BundleLanguages, BundleReference, Candidate, ModelBundle, Shortlist
 from voice_pipeline.exporting.checkpoints import export_s1_checkpoint, export_s2_checkpoint
 from voice_pipeline.profiles.registry import ProfileRegistry
 
@@ -39,7 +39,16 @@ def export_candidates(
         base_s1 = project_root / profile.s1_relative_path
         base_s2 = project_root / profile.s2g_relative_path
         for candidate in shortlist.candidates:
-            _build_candidate(temporary / candidate.id, shortlist, candidate, base_s1, base_s2)
+            _populate_candidate(
+                temporary / candidate.id,
+                profile=shortlist.profile,
+                model_name=shortlist.model_name,
+                reference=shortlist.reference,
+                languages=shortlist.languages,
+                candidate=candidate,
+                base_s1=base_s1,
+                base_s2=base_s2,
+            )
         _publish_tree(temporary, destination, overwrite)
     finally:
         _remove_tree(temporary)
@@ -81,31 +90,75 @@ def promote_candidate(
     return destination
 
 
-def _build_candidate(root, shortlist, candidate, base_s1, base_s2) -> None:
+def build_candidate_bundle(
+    destination: Path,
+    *,
+    profile: str,
+    model_name: str,
+    reference: BundleReference,
+    languages: BundleLanguages,
+    candidate: Candidate,
+    project_root: Path,
+) -> Path:
+    destination = Path(destination).resolve()
+    project_root = Path(project_root).resolve()
+    if destination.exists():
+        raise ValueError(f"candidate bundle already exists: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        pinned = ProfileRegistry.get(profile)
+        _populate_candidate(
+            temporary,
+            profile=profile,
+            model_name=model_name,
+            reference=reference,
+            languages=languages,
+            candidate=candidate,
+            base_s1=project_root / pinned.s1_relative_path,
+            base_s2=project_root / pinned.s2g_relative_path,
+        )
+        _publish_tree(temporary, destination, False)
+    finally:
+        _remove_tree(temporary)
+    return destination
+
+
+def _populate_candidate(
+    root: Path,
+    *,
+    profile: str,
+    model_name: str,
+    reference: BundleReference,
+    languages: BundleLanguages,
+    candidate: Candidate,
+    base_s1: Path,
+    base_s2: Path,
+) -> None:
     weights = root / "weights"
-    reference = root / "reference"
+    reference_dir = root / "reference"
     weights.mkdir(parents=True)
-    reference.mkdir()
+    reference_dir.mkdir()
     s1_metadata = export_s1_checkpoint(candidate.s1, base_s1, weights / "s1.ckpt")
     s2_metadata = export_s2_checkpoint(candidate.s2, base_s2, weights / "s2.pth")
-    shutil.copy2(shortlist.reference.audio, reference / "default.wav")
-    reference_payload = {"language": shortlist.reference.language}
-    if shortlist.reference.text is not None:
-        reference_payload["text"] = shortlist.reference.text
-    (reference / "default.json").write_text(
+    shutil.copy2(reference.audio, reference_dir / "default.wav")
+    reference_payload = {"language": reference.language}
+    if reference.text is not None:
+        reference_payload["text"] = reference.text
+    (reference_dir / "default.json").write_text(
         json.dumps(reference_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     bundle = ModelBundle(
         root=root,
-        profile=shortlist.profile,
+        profile=profile,
         weights={"s1": Path("weights/s1.ckpt"), "s2": Path("weights/s2.pth")},
-        reference=BundleReference(Path("reference/default.wav"), shortlist.reference.text, shortlist.reference.language),
-        languages=shortlist.languages,
+        reference=BundleReference(Path("reference/default.wav"), reference.text, reference.language),
+        languages=languages,
         metadata={
             "candidate_id": candidate.id,
-            "model_name": shortlist.model_name,
-            "profile": shortlist.profile,
+            "model_name": model_name,
+            "profile": profile,
             "checkpoints": {"s1": s1_metadata, "s2": s2_metadata},
         },
     )
@@ -138,4 +191,4 @@ def _remove_tree(path: Path) -> None:
         path.unlink()
 
 
-__all__ = ["export_candidates", "promote_candidate"]
+__all__ = ["build_candidate_bundle", "export_candidates", "promote_candidate"]

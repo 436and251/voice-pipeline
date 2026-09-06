@@ -16,7 +16,7 @@ from voice_pipeline.common.model_bundle import (
     ModelBundle,
     Shortlist,
 )
-from voice_pipeline.exporting.bundles import export_candidates, promote_candidate
+from voice_pipeline.exporting.bundles import build_candidate_bundle, export_candidates, promote_candidate
 
 
 def _write_shortlist(run_dir: Path, project_root: Path, **changes) -> Path:
@@ -232,6 +232,34 @@ def test_exports_every_shortlisted_candidate_as_complete_bundle(tmp_path: Path):
         assert set(bundle.metadata["checkpoints"]) == {"s1", "s2"}
         manifests = (path / "model.yaml").read_text(encoding="utf-8") + (path / "metadata.json").read_text(encoding="utf-8")
         assert str(tmp_path) not in manifests
+
+
+def test_builds_one_candidate_bundle_atomically(tmp_path: Path):
+    run_dir, shortlist = _exportable_shortlist(tmp_path)
+    destination = run_dir / "evaluation" / "work" / "one" / "bundle"
+
+    built = build_candidate_bundle(
+        destination,
+        profile=shortlist.profile,
+        model_name=shortlist.model_name,
+        reference=shortlist.reference,
+        languages=shortlist.languages,
+        candidate=shortlist.candidates[0],
+        project_root=tmp_path,
+    )
+
+    assert built == destination
+    assert ModelBundle.load(built).metadata["candidate_id"] == "candidate_A"
+    with pytest.raises(ValueError, match="already exists"):
+        build_candidate_bundle(
+            destination,
+            profile=shortlist.profile,
+            model_name=shortlist.model_name,
+            reference=shortlist.reference,
+            languages=shortlist.languages,
+            candidate=shortlist.candidates[0],
+            project_root=tmp_path,
+        )
 
 
 def test_failed_candidate_conversion_publishes_nothing(tmp_path: Path, monkeypatch):
