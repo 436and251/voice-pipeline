@@ -8,3 +8,7 @@ class ManifestError(VoicePipelineError):
 
 class EvaluationError(VoicePipelineError):
     """Raised when automatic evaluation cannot produce a valid shortlist."""
+
+
+class PipelineStageError(VoicePipelineError):
+    """Raised when one declared pipeline stage fails."""
