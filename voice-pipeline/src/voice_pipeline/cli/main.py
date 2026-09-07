@@ -6,6 +6,7 @@ from voice_pipeline.cli.train import app as train_app
 from voice_pipeline.cli.export import export_command
 from voice_pipeline.cli.evaluate import evaluate_command
 from voice_pipeline.cli.infer import app as infer_app
+from voice_pipeline.cli.run import run_command
 
 app = typer.Typer(name="voice-pipeline", help="GPT-SoVITS voice training and inference pipeline.")
 app.add_typer(models_app, name="models")
@@ -14,6 +15,7 @@ app.add_typer(train_app, name="train")
 app.command("export")(export_command)
 app.command("evaluate")(evaluate_command)
 app.add_typer(infer_app, name="infer")
+app.command("run")(run_command)
 
 
 @app.callback()

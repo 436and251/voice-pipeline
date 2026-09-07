@@ -9,6 +9,7 @@ def test_root_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "gpt-sovits" in result.stdout.lower()
+    assert "run" in result.stdout
 
 
 def test_version_command():

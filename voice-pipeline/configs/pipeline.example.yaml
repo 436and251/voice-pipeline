@@ -1,0 +1,7 @@
+schema_version: 1
+config: configs/train.local.yaml
+stages:
+  - preprocess
+  - s2
+  - s1
+  - evaluate

@@ -141,7 +141,33 @@ s1:
 optimizer step 对应 8 条 mini-batch 样本。显存不足时可先把 S1 或 S2 的
 `batch_size` 降为 1，不要修改 S1 的累积值。
 
-### 3.3 完整预处理
+### 3.3 推荐：统一运行到人工候选
+
+训练配置确认后，复制统一编排示例：
+
+```powershell
+Copy-Item configs/pipeline.example.yaml configs/pipeline.local.yaml
+voice-pipeline run configs/pipeline.local.yaml --project-root .
+```
+
+`pipeline.local.yaml` 中的 `config` 从 `--project-root` 解析；默认依次执行
+`preprocess → s2 → s1 → evaluate`。状态写入
+`runs/<experiment.name>/pipeline-state.json`。再次执行同一命令时，`completed` 阶段直接
+跳过，`failed` 或中断时留下的 `running` 阶段会重试。
+
+训练恢复不会自动猜测 checkpoint。需要恢复 S1/S2 时，先在
+`configs/train.local.yaml` 的对应阶段填写明确的 `resume_from`，再重跑统一命令。
+
+含 `evaluate` 的流水线全部成功后会执行强清理：先验证评分报告、shortlist、所有候选
+ModelBundle、中文/日文/英文试听文件及 SHA-256，然后不可逆删除 `preprocess/`、
+`training/`（包括原始 S1/S2 恢复 checkpoint）、`evaluation/generated/`、`work/` 和
+其他 run 内临时杂项。保留 `pipeline-state.json`、评测报告、shortlist、三语试听音频和
+`export/candidates/`。失败、中断或未声明 `evaluate` 时不执行强清理。
+
+因此，首次调试或希望暂时保留原始 checkpoint 时，请使用下面的分阶段命令；确认要完整
+跑通并接受成功后清理时，再使用 `voice-pipeline run`。
+
+### 3.4 完整预处理
 
 只运行下面这一条，才能发布 S1/S2 都需要的正式训练索引：
 
@@ -169,7 +195,7 @@ Get-Content runs/speaker_001/preprocess/quarantine.jsonl
 编辑生成的 `valid_samples.jsonl` 或各阶段 `index.jsonl`，修正原始数据后重新执行
 `preprocess all`。
 
-### 3.4 训练 S2 和 S1
+### 3.5 训练 S2 和 S1
 
 首次真实训练建议分开运行，便于分别观察显存和日志：
 
@@ -208,7 +234,7 @@ runs/speaker_001/
 这些 `.pt` 是包含模型、优化器、scheduler、GradScaler、随机数状态和精确 batch cursor
 的内部恢复 checkpoint，不是可以直接交给推理器的最终权重。
 
-### 3.5 中断后恢复训练
+### 3.6 中断后恢复训练
 
 恢复时在 `configs/train.local.yaml` 中填写对应阶段的内部 checkpoint，并把目标 step
 保持为不小于 checkpoint 中已有的 step：
@@ -233,7 +259,7 @@ voice-pipeline train s1 -c configs/train.local.yaml --project-root .
 不要把 S1 checkpoint 填给 S2，反之亦然，也不要使用导出后的推理权重恢复训练。
 checkpoint 文件名中的 step 必须与内部 cursor 一致，框架会在加载前严格校验结构。
 
-### 3.6 自动评测与人工选择
+### 3.7 自动评测与人工选择
 
 训练完成后运行：
 
@@ -267,12 +293,19 @@ voice-pipeline export --run runs/<目标人> --project-root . --select candidate
 不要按 checkpoint step、单一 loss 或自动总分直接决定最终模型。阈值说明、模型缓存和
 调参方法见 `docs/evaluation.md`。
 
-### 3.7 清理规则
+### 3.8 清理规则
 
-某阶段达到目标 step 且最终 checkpoint 原子写入成功后，框架自动删除预处理目录内的
-`*.tmp` 和已 quarantine 样本的孤立阶段产物，保留正式预处理结果与训练 checkpoint。
-训练异常或被中断时不会清理，以便排查和恢复。评测成功后会删除可重建的
-`evaluation/work/`，保留评分、候选包和试听音频。
+单独运行预处理或训练命令时，只清除阶段自身的 `*.tmp` 和已 quarantine 样本的孤立
+产物，保留正式预处理结果与训练 checkpoint；异常或中断时保留现场以便排查和恢复。
+
+只有 `voice-pipeline run` 声明了 `evaluate`、所有声明阶段完成，并且持久评测产物全部
+通过验证后，才执行强清理。此时原始恢复 checkpoint 会被删除，不能再用于续训；每个
+评测候选已经提前转换为可独立推理的 ModelBundle，保存在
+`runs/<目标人>/export/candidates/`。试听后仍由人决定最终候选：
+
+```powershell
+voice-pipeline export --run runs/<目标人> --project-root . --select candidate_A
+```
 
 ## 4. 使用正式模型推理
 

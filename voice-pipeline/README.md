@@ -1023,6 +1023,7 @@ voice-pipeline train s2 -c configs/train.yaml
 voice-pipeline train s1 -c configs/train.yaml
 voice-pipeline evaluate -c configs/train.yaml --project-root .
 voice-pipeline export --run runs/speaker_001 --project-root . --select candidate_A
+voice-pipeline run configs/pipeline.local.yaml --project-root .
 ```
 
 推理：
@@ -1070,26 +1071,39 @@ voice-pipeline infer benchmark \
 
 ## 33. Pipeline YAML
 
-第一版保持简单：
+统一编排配置保持简单，阶段必须是规范顺序中的非空子序列：
 
 ```yaml
-pipeline:
-  stages:
-    - preprocess
-    - s2
-    - s1
-    - evaluate
-    - select
-    - export
+schema_version: 1
+config: configs/train.local.yaml
+stages:
+  - preprocess
+  - s2
+  - s1
+  - evaluate
 ```
 
 运行：
 
-```bash
-voice-pipeline run pipeline.yaml
+```powershell
+Copy-Item configs/pipeline.example.yaml configs/pipeline.local.yaml
+voice-pipeline run configs/pipeline.local.yaml --project-root .
 ```
 
-Pipeline Orchestrator 只负责编排 Stage，不引入复杂 DAG DSL、插件图或动态 workflow DSL。
+Pipeline Orchestrator 在当前进程内调用现有 Stage，不引入 DAG DSL、插件图或自调用子进程。
+状态保存在 `runs/<experiment.name>/pipeline-state.json`；再次运行时跳过 `completed`，重试
+`failed`/`running`。S1/S2 恢复只接受训练 YAML 中显式配置的 `resume_from`，不会自动
+寻找 checkpoint。
+
+若阶段列表包含 `evaluate` 且全部成功，系统在验证评分报告、shortlist、所有候选
+ModelBundle 和三语试听哈希后执行强清理：保留状态、评测证据、试听音频与
+`export/candidates/`，删除预处理结果、原始 S1/S2 checkpoint 和可重建缓存。该删除不可
+逆；失败、中断或不含 `evaluate` 时不清理。Evaluator 只生成候选，人耳试听后仍须显式
+执行：
+
+```powershell
+voice-pipeline export --run runs/<目标人> --project-root . --select candidate_A
+```
 
 ## 34. Training YAML 示例
 
