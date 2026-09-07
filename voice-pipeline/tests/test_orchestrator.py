@@ -285,3 +285,104 @@ def test_execute_evaluate_rejects_disabled_evaluation(
 def test_execute_stage_rejects_unknown_stage(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unknown pipeline stage"):
         orchestrator.execute_stage("export", tmp_path / "train.yaml", tmp_path)
+
+
+def test_pipeline_without_evaluate_never_cleans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = _pipeline_fixture(tmp_path, ["preprocess", "s2"])
+    run_dir = tmp_path / "runs" / "speaker"
+    monkeypatch.setattr(orchestrator, "_run_dir", lambda config, root: run_dir)
+
+    outcome = run_pipeline(
+        pipeline,
+        tmp_path,
+        execute_stage=lambda stage, config, root: None,
+        cleanup=lambda run, root: pytest.fail("cleanup must not run"),
+    )
+
+    assert outcome.cleaned is False
+
+
+def test_successful_evaluation_pipeline_cleans_after_persisting_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = _pipeline_fixture(tmp_path, ["preprocess", "evaluate"])
+    run_dir = tmp_path / "runs" / "speaker"
+    monkeypatch.setattr(orchestrator, "_run_dir", lambda config, root: run_dir)
+    calls: list[tuple] = []
+
+    def cleanup(run: Path, root: Path) -> None:
+        payload = json.loads((run / "pipeline-state.json").read_text(encoding="utf-8"))
+        calls.append((run, root, payload["stages"]))
+
+    outcome = run_pipeline(
+        pipeline,
+        tmp_path,
+        execute_stage=lambda stage, config, root: None,
+        cleanup=cleanup,
+    )
+
+    assert calls == [
+        (
+            run_dir.resolve(),
+            tmp_path.resolve(),
+            {"preprocess": "completed", "evaluate": "completed"},
+        )
+    ]
+    assert outcome.cleaned is True
+
+
+def test_stage_failure_never_cleans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = _pipeline_fixture(tmp_path, ["preprocess", "evaluate"])
+    monkeypatch.setattr(
+        orchestrator, "_run_dir", lambda config, root: tmp_path / "runs" / "speaker"
+    )
+
+    with pytest.raises(PipelineStageError):
+        run_pipeline(
+            pipeline,
+            tmp_path,
+            execute_stage=lambda stage, config, root: (_ for _ in ()).throw(
+                RuntimeError("stage failed")
+            ),
+            cleanup=lambda run, root: pytest.fail("cleanup must not run"),
+        )
+
+
+def test_cleanup_failure_is_retried_without_rerunning_completed_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = _pipeline_fixture(tmp_path, ["preprocess", "evaluate"])
+    run_dir = tmp_path / "runs" / "speaker"
+    monkeypatch.setattr(orchestrator, "_run_dir", lambda config, root: run_dir)
+    stage_calls: list[str] = []
+    cleanup_calls: list[Path] = []
+
+    def fail_cleanup(run: Path, root: Path) -> None:
+        cleanup_calls.append(run)
+        raise RuntimeError("cleanup failed")
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        run_pipeline(
+            pipeline,
+            tmp_path,
+            execute_stage=lambda stage, config, root: stage_calls.append(stage),
+            cleanup=fail_cleanup,
+        )
+    assert stage_calls == ["preprocess", "evaluate"]
+
+    stage_calls.clear()
+    outcome = run_pipeline(
+        pipeline,
+        tmp_path,
+        execute_stage=lambda stage, config, root: stage_calls.append(stage),
+        cleanup=lambda run, root: cleanup_calls.append(run),
+    )
+
+    assert stage_calls == []
+    assert outcome.skipped == ("preprocess", "evaluate")
+    assert cleanup_calls == [run_dir.resolve(), run_dir.resolve()]
+    assert outcome.cleaned is True

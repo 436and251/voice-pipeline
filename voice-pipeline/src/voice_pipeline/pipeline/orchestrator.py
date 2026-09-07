@@ -3,11 +3,13 @@ from pathlib import Path
 from typing import Callable
 
 from voice_pipeline.common.errors import PipelineStageError
+from voice_pipeline.pipeline.cleanup import cleanup_successful_run
 from voice_pipeline.pipeline.config import PipelineSpec
 from voice_pipeline.pipeline.state import PipelineState
 
 
 StageExecutor = Callable[[str, Path, Path], None]
+Cleanup = Callable[[Path, Path], object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +82,7 @@ def run_pipeline(
     project_root: Path,
     *,
     execute_stage: StageExecutor = execute_stage,
+    cleanup: Cleanup = cleanup_successful_run,
 ) -> PipelineOutcome:
     root = Path(project_root).resolve()
     spec = PipelineSpec.load(path, root)
@@ -101,7 +104,14 @@ def run_pipeline(
         state.complete(stage)
         executed.append(stage)
 
-    return PipelineOutcome(tuple(executed), tuple(skipped), state.path, False)
+    cleaned = False
+    if "evaluate" in spec.stages and all(
+        state.status(stage) == "completed" for stage in spec.stages
+    ):
+        cleanup(state.path.parent, root)
+        cleaned = True
+
+    return PipelineOutcome(tuple(executed), tuple(skipped), state.path, cleaned)
 
 
 __all__ = [
