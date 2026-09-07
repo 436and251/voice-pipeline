@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a resumable `voice-pipeline run` command that executes the valid v2ProPlus stages in order and, after a validated successful evaluation, removes raw training and reproducible run artifacts while preserving evaluation evidence and exported candidates.
+**Goal:** Add a resumable `voice-pipeline run` command that executes the valid v2ProPlus stages in order, preserves raw training artifacts for human review, and cleans them only after an explicit human-selected candidate is successfully promoted.
 
 **Architecture:** A strict YAML parser defines the referenced training config and canonical stage subsequence. An atomic JSON state file records stage transitions, an in-process orchestrator calls existing core APIs through one stage dispatcher, and a separately tested cleanup module validates all durable evaluation/candidate artifacts before deleting exact run-owned paths.
 
@@ -17,8 +17,8 @@
 - Accepted stages are exactly `preprocess`, `s2`, `s1`, and `evaluate`, in that canonical order with no duplicates.
 - Do not infer checkpoints; S1/S2 recovery remains explicit through `resume_from` in the referenced training YAML.
 - Never automate human candidate selection or promotion.
-- Strong cleanup runs only after `evaluate` completes and all preserved artifacts validate.
-- A failed, interrupted, or non-evaluation pipeline keeps preprocessing and raw checkpoints.
+- `run` and `evaluate` always keep preprocessing and raw checkpoints for human review.
+- Strong cleanup runs only after explicit `export --select` promotion succeeds and all preserved artifacts validate.
 - Never delete dataset inputs, official pretrained weights, evaluator weights, source files, or promoted ModelBundles.
 - Use strict RED → GREEN → REFACTOR cycles and stop for user review after each implementation task.
 
@@ -528,22 +528,13 @@ Run the Step 2 command with basetemp `task22-c-green`.
 
 Expected: all cleanup and no-deletion-on-validation-failure tests pass.
 
-- [ ] **Step 7: Connect cleanup to completed evaluation pipelines**
+- [ ] **Step 7: Connect cleanup to explicit human promotion**
 
-Update the signature to
-`run_pipeline(path, project_root, *, execute_stage=execute_stage, cleanup=cleanup_successful_run)`
-and call cleanup only when:
-
-```python
-"evaluate" in spec.stages and all(state.status(stage) == "completed" for stage in spec.stages)
-```
-
-Call cleanup after all stage transitions have been persisted. Return `cleaned=True` only after
-cleanup succeeds. On cleanup failure, keep every already-preserved durable artifact, return no
-false success, and allow a rerun to skip completed stages and retry cleanup.
-
-Extend orchestrator tests to assert cleanup is not called on stage failure or a pipeline without
-`evaluate`, is called after successful evaluation, and is retried after a cleanup exception.
+Keep `run_pipeline` free of cleanup so evaluation completion retains raw checkpoints for listening
+and possible continuation. After `export --select <candidate>` successfully promotes the selected
+candidate outside the run directory, call `cleanup_successful_run(run, project_root)`. Promotion
+failure must never clean. A cleanup failure reports that promotion succeeded while preserving the
+final model and any training resources not removed. Reject a final model root inside the run.
 
 - [ ] **Step 8: Run Task22-C regression slice**
 
@@ -654,8 +645,8 @@ voice-pipeline run configs/pipeline.local.yaml --project-root .
 ```
 
 Document state location, completed-stage skipping, explicit `resume_from`, retry behavior, the
-post-evaluation preservation list, irreversible deletion of raw checkpoints, and the unchanged
-human command:
+post-evaluation human review window, and irreversible deletion of raw checkpoints only after the
+human command succeeds:
 
 ```powershell
 voice-pipeline export --run runs/<目标人> --project-root . --select candidate_A

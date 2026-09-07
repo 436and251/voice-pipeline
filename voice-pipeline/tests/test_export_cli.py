@@ -39,6 +39,12 @@ def test_export_command_promotes_only_explicit_human_selection(tmp_path: Path, m
     monkeypatch.setattr(export_cli, "export_candidates", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not convert")))
     monkeypatch.setattr(
         export_cli,
+        "cleanup_successful_run",
+        lambda run_dir, project_root: calls.append(("cleanup", run_dir, project_root)),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        export_cli,
         "promote_candidate",
         lambda run_dir, candidate_id, project_root, overwrite=False, model_root=None: calls.append(
             (run_dir, candidate_id, project_root, overwrite, model_root)
@@ -56,7 +62,93 @@ def test_export_command_promotes_only_explicit_human_selection(tmp_path: Path, m
 
     assert result.exit_code == 0
     assert "promoted candidate_B" in result.stdout
-    assert calls == [(run.resolve(), "candidate_B", tmp_path.resolve(), True, model_root.resolve())]
+    assert calls == [
+        (run.resolve(), "candidate_B", tmp_path.resolve(), True, model_root.resolve()),
+        ("cleanup", run.resolve(), tmp_path.resolve()),
+    ]
+
+
+def test_failed_promotion_never_cleans(tmp_path: Path, monkeypatch):
+    run = tmp_path / "run"
+    run.mkdir()
+    monkeypatch.setattr(
+        export_cli,
+        "promote_candidate",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("promotion failed")),
+    )
+    monkeypatch.setattr(
+        export_cli,
+        "cleanup_successful_run",
+        lambda *args: (_ for _ in ()).throw(AssertionError("must not clean")),
+        raising=False,
+    )
+
+    result = runner.invoke(
+        app,
+        ["export", "--run", str(run), "--project-root", str(tmp_path), "--select", "candidate_A"],
+    )
+
+    assert result.exit_code == 1
+    assert "promotion failed" in result.stderr
+
+
+def test_final_model_root_must_be_outside_training_run(tmp_path: Path, monkeypatch):
+    run = tmp_path / "runs" / "speaker"
+    run.mkdir(parents=True)
+    monkeypatch.setattr(
+        export_cli,
+        "promote_candidate",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not promote")),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "--run",
+            str(run),
+            "--project-root",
+            str(tmp_path),
+            "--select",
+            "candidate_A",
+            "--model-root",
+            str(run / "final"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "outside the training run" in result.stderr
+
+
+def test_cleanup_failure_reports_that_promoted_model_is_preserved(
+    tmp_path: Path, monkeypatch
+):
+    run = tmp_path / "run"
+    run.mkdir()
+    promoted = tmp_path / "models" / "speaker"
+
+    def promote(*args, **kwargs):
+        promoted.mkdir(parents=True)
+        (promoted / "model.yaml").write_text("preserved", encoding="utf-8")
+        return promoted
+
+    monkeypatch.setattr(export_cli, "promote_candidate", promote)
+    monkeypatch.setattr(
+        export_cli,
+        "cleanup_successful_run",
+        lambda *args: (_ for _ in ()).throw(ValueError("validation failed")),
+        raising=False,
+    )
+
+    result = runner.invoke(
+        app,
+        ["export", "--run", str(run), "--project-root", str(tmp_path), "--select", "candidate_A"],
+    )
+
+    assert result.exit_code == 1
+    assert "promoted candidate_A" in result.stderr
+    assert "cleanup failed: validation failed" in result.stderr
+    assert (promoted / "model.yaml").read_text(encoding="utf-8") == "preserved"
 
 
 def test_export_command_reports_unknown_candidate_as_controlled_error(tmp_path: Path, monkeypatch):

@@ -24,7 +24,7 @@ def test_run_cli_reports_executed_skipped_state_and_cleanup(
             executed=("s2", "s1", "evaluate"),
             skipped=("preprocess",),
             state_path=state_path,
-            cleaned=True,
+            cleaned=False,
         ),
     )
 
@@ -36,7 +36,7 @@ def test_run_cli_reports_executed_skipped_state_and_cleanup(
     assert "executed=s2,s1,evaluate" in result.output
     assert "skipped=preprocess" in result.output
     assert f"state={state_path}" in result.output
-    assert "cleaned=yes" in result.output
+    assert "cleaned=no" in result.output
 
 
 def test_run_cli_returns_one_for_pipeline_failure(

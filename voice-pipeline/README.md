@@ -1095,15 +1095,16 @@ Pipeline Orchestrator 在当前进程内调用现有 Stage，不引入 DAG DSL�
 `failed`/`running`。S1/S2 恢复只接受训练 YAML 中显式配置的 `resume_from`，不会自动
 寻找 checkpoint。
 
-若阶段列表包含 `evaluate` 且全部成功，系统在验证评分报告、shortlist、所有候选
-ModelBundle 和三语试听哈希后执行强清理：保留状态、评测证据、试听音频与
-`export/candidates/`，删除预处理结果、原始 S1/S2 checkpoint 和可重建缓存。该删除不可
-逆；失败、中断或不含 `evaluate` 时不清理。Evaluator 只生成候选，人耳试听后仍须显式
-执行：
+`run` 完成 `evaluate` 后只生成评测证据、三语试听和全部候选 ModelBundle，不删除
+预处理结果或原始 S1/S2 checkpoint。Evaluator 只提供候选，人耳试听后仍须显式执行：
 
 ```powershell
 voice-pipeline export --run runs/<目标人> --project-root . --select candidate_A
 ```
+
+该人工选择成功晋升正式 ModelBundle 后，系统才验证报告、shortlist、候选包和试听哈希，
+再不可逆删除预处理结果、原始 checkpoint 与可重建缓存。晋升失败不清理；清理失败时已
+晋升的正式模型和原始训练资源均保留。
 
 ## 34. Training YAML 示例
 

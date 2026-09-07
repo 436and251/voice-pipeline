@@ -4,6 +4,7 @@ import typer
 
 from voice_pipeline.common.model_bundle import Shortlist
 from voice_pipeline.exporting.bundles import export_candidates, promote_candidate
+from voice_pipeline.pipeline.cleanup import cleanup_successful_run
 
 
 def export_command(
@@ -25,6 +26,9 @@ def export_command(
             exported = export_candidates(shortlist, run, project_root, overwrite=overwrite)
             typer.echo(f"exported {len(exported)} candidates to {run / 'export' / 'candidates'}")
         else:
+            final_root = model_root or project_root / "models"
+            if final_root == run or final_root.is_relative_to(run):
+                raise ValueError("final model root must remain outside the training run")
             promoted = promote_candidate(
                 run,
                 select,
@@ -32,6 +36,14 @@ def export_command(
                 overwrite=overwrite,
                 model_root=model_root,
             )
+            try:
+                cleanup_successful_run(run, project_root)
+            except (FileNotFoundError, OSError, RuntimeError, ValueError) as error:
+                typer.echo(
+                    f"Error: promoted {select} to {promoted}, but cleanup failed: {error}",
+                    err=True,
+                )
+                raise typer.Exit(code=1) from error
             typer.echo(f"promoted {select} to {promoted}")
     except (FileNotFoundError, KeyError, OSError, RuntimeError, ValueError) as error:
         typer.echo(f"Error: {error}", err=True)

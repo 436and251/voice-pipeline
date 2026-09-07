@@ -287,7 +287,7 @@ def test_execute_stage_rejects_unknown_stage(tmp_path: Path) -> None:
         orchestrator.execute_stage("export", tmp_path / "train.yaml", tmp_path)
 
 
-def test_pipeline_without_evaluate_never_cleans(
+def test_pipeline_without_evaluate_reports_no_cleanup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipeline = _pipeline_fixture(tmp_path, ["preprocess", "s2"])
@@ -298,48 +298,47 @@ def test_pipeline_without_evaluate_never_cleans(
         pipeline,
         tmp_path,
         execute_stage=lambda stage, config, root: None,
-        cleanup=lambda run, root: pytest.fail("cleanup must not run"),
     )
 
     assert outcome.cleaned is False
 
 
-def test_successful_evaluation_pipeline_cleans_after_persisting_completion(
+def test_successful_evaluation_pipeline_keeps_training_artifacts_for_human_review(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipeline = _pipeline_fixture(tmp_path, ["preprocess", "evaluate"])
     run_dir = tmp_path / "runs" / "speaker"
     monkeypatch.setattr(orchestrator, "_run_dir", lambda config, root: run_dir)
-    calls: list[tuple] = []
-
-    def cleanup(run: Path, root: Path) -> None:
-        payload = json.loads((run / "pipeline-state.json").read_text(encoding="utf-8"))
-        calls.append((run, root, payload["stages"]))
+    raw_checkpoint = run_dir / "training" / "s2" / "checkpoints" / "step.pt"
+    raw_checkpoint.parent.mkdir(parents=True)
+    raw_checkpoint.write_bytes(b"raw")
 
     outcome = run_pipeline(
         pipeline,
         tmp_path,
         execute_stage=lambda stage, config, root: None,
-        cleanup=cleanup,
     )
 
-    assert calls == [
-        (
-            run_dir.resolve(),
-            tmp_path.resolve(),
-            {"preprocess": "completed", "evaluate": "completed"},
-        )
-    ]
-    assert outcome.cleaned is True
+    payload = json.loads(
+        (run_dir / "pipeline-state.json").read_text(encoding="utf-8")
+    )
+    assert payload["stages"] == {
+        "preprocess": "completed",
+        "evaluate": "completed",
+    }
+    assert raw_checkpoint.is_file()
+    assert outcome.cleaned is False
 
 
-def test_stage_failure_never_cleans(
+def test_stage_failure_preserves_training_artifacts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipeline = _pipeline_fixture(tmp_path, ["preprocess", "evaluate"])
-    monkeypatch.setattr(
-        orchestrator, "_run_dir", lambda config, root: tmp_path / "runs" / "speaker"
-    )
+    run_dir = tmp_path / "runs" / "speaker"
+    monkeypatch.setattr(orchestrator, "_run_dir", lambda config, root: run_dir)
+    raw_checkpoint = run_dir / "training" / "s2" / "checkpoints" / "step.pt"
+    raw_checkpoint.parent.mkdir(parents=True)
+    raw_checkpoint.write_bytes(b"raw")
 
     with pytest.raises(PipelineStageError):
         run_pipeline(
@@ -348,41 +347,5 @@ def test_stage_failure_never_cleans(
             execute_stage=lambda stage, config, root: (_ for _ in ()).throw(
                 RuntimeError("stage failed")
             ),
-            cleanup=lambda run, root: pytest.fail("cleanup must not run"),
         )
-
-
-def test_cleanup_failure_is_retried_without_rerunning_completed_stages(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    pipeline = _pipeline_fixture(tmp_path, ["preprocess", "evaluate"])
-    run_dir = tmp_path / "runs" / "speaker"
-    monkeypatch.setattr(orchestrator, "_run_dir", lambda config, root: run_dir)
-    stage_calls: list[str] = []
-    cleanup_calls: list[Path] = []
-
-    def fail_cleanup(run: Path, root: Path) -> None:
-        cleanup_calls.append(run)
-        raise RuntimeError("cleanup failed")
-
-    with pytest.raises(RuntimeError, match="cleanup failed"):
-        run_pipeline(
-            pipeline,
-            tmp_path,
-            execute_stage=lambda stage, config, root: stage_calls.append(stage),
-            cleanup=fail_cleanup,
-        )
-    assert stage_calls == ["preprocess", "evaluate"]
-
-    stage_calls.clear()
-    outcome = run_pipeline(
-        pipeline,
-        tmp_path,
-        execute_stage=lambda stage, config, root: stage_calls.append(stage),
-        cleanup=lambda run, root: cleanup_calls.append(run),
-    )
-
-    assert stage_calls == []
-    assert outcome.skipped == ("preprocess", "evaluate")
-    assert cleanup_calls == [run_dir.resolve(), run_dir.resolve()]
-    assert outcome.cleaned is True
+    assert raw_checkpoint.is_file()

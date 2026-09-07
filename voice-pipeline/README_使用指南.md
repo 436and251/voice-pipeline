@@ -158,14 +158,10 @@ voice-pipeline run configs/pipeline.local.yaml --project-root .
 训练恢复不会自动猜测 checkpoint。需要恢复 S1/S2 时，先在
 `configs/train.local.yaml` 的对应阶段填写明确的 `resume_from`，再重跑统一命令。
 
-含 `evaluate` 的流水线全部成功后会执行强清理：先验证评分报告、shortlist、所有候选
-ModelBundle、中文/日文/英文试听文件及 SHA-256，然后不可逆删除 `preprocess/`、
-`training/`（包括原始 S1/S2 恢复 checkpoint）、`evaluation/generated/`、`work/` 和
-其他 run 内临时杂项。保留 `pipeline-state.json`、评测报告、shortlist、三语试听音频和
-`export/candidates/`。失败、中断或未声明 `evaluate` 时不执行强清理。
-
-因此，首次调试或希望暂时保留原始 checkpoint 时，请使用下面的分阶段命令；确认要完整
-跑通并接受成功后清理时，再使用 `voice-pipeline run`。
+`voice-pipeline run` 在自动评测、候选 ModelBundle 转换和三语试听生成完成后停止，不执行
+强清理；此时 `preprocess/`、`training/` 和原始 S1/S2 恢复 checkpoint 全部保留，供你
+试听、比较或继续训练。只有人工确定最终候选并成功执行
+`voice-pipeline export --select candidate_X` 后，才验证持久产物并执行强清理。
 
 ### 3.4 完整预处理
 
@@ -298,14 +294,21 @@ voice-pipeline export --run runs/<目标人> --project-root . --select candidate
 单独运行预处理或训练命令时，只清除阶段自身的 `*.tmp` 和已 quarantine 样本的孤立
 产物，保留正式预处理结果与训练 checkpoint；异常或中断时保留现场以便排查和恢复。
 
-只有 `voice-pipeline run` 声明了 `evaluate`、所有声明阶段完成，并且持久评测产物全部
-通过验证后，才执行强清理。此时原始恢复 checkpoint 会被删除，不能再用于续训；每个
-评测候选已经提前转换为可独立推理的 ModelBundle，保存在
-`runs/<目标人>/export/candidates/`。试听后仍由人决定最终候选：
+`voice-pipeline run` 和单独的 `evaluate` 都不会执行强清理。每个评测候选已经提前转换
+为可独立推理的 ModelBundle，保存在 `runs/<目标人>/export/candidates/`；预处理结果与
+原始 checkpoint 会一直保留到人工确定最终候选。
+
+试听后由人显式晋升最终候选：
 
 ```powershell
 voice-pipeline export --run runs/<目标人> --project-root . --select candidate_A
 ```
+
+候选成功晋升到正式模型目录后，系统才验证评分报告、shortlist、全部候选包和三语试听
+哈希，并不可逆删除 `preprocess/`、`training/`（包括原始恢复 checkpoint）、
+`evaluation/generated/`、`work/` 及其他 run 内杂项。保留状态、评测证据、试听音频、
+全部候选包和正式模型。晋升失败时绝不清理；极少数清理验证失败时，已晋升的正式模型和
+原始训练资源都会保留，并返回明确错误。
 
 ## 4. 使用正式模型推理
 

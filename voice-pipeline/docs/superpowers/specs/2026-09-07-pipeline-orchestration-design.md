@@ -63,14 +63,19 @@ pipeline identity changes, the existing state is rejected instead of guessed or 
 Checkpoint-level recovery remains explicit in the training YAML through each stage's
 `resume_from`. The orchestrator does not scan for or choose a checkpoint.
 
-## Successful Cleanup
+## Human-Confirmed Cleanup
 
-Strong cleanup runs only when the declared pipeline includes `evaluate`, every declared stage is
-completed, the shortlist exists, every exported candidate passes `ModelBundle.load`, and the
-listening manifest names exactly those candidates and every referenced preview WAV is non-empty
-and matches its recorded SHA-256. A failed or interrupted pipeline does not run this cleanup.
+The orchestrator never performs strong cleanup. It stops after evaluation so the human can listen
+to every candidate while preprocessing output and raw recovery checkpoints remain available.
+Strong cleanup starts only after an explicit `export --select <candidate>` successfully promotes
+that candidate to a final ModelBundle outside the run directory.
 
-After validation, the orchestrator preserves:
+Cleanup then requires the shortlist, every exported candidate to pass `ModelBundle.load`, and the
+listening manifest to name exactly those candidates with non-empty preview WAVs matching their
+recorded SHA-256. Failed promotion never triggers cleanup. If cleanup validation fails after
+promotion, the promoted model and original training resources remain available.
+
+After validation, the export command preserves:
 
 ```text
 <run>/pipeline-state.json
@@ -95,18 +100,19 @@ official pretrained weights, evaluator weights, the project source tree, and fin
 ModelBundles are never cleanup targets. Development-time pytest and Python bytecode caches are
 cleaned at Task22 handoff, not by the production command.
 
-The raw checkpoints are intentionally deleted after successful evaluation: all shortlisted S1
-and S2 weights have already been converted into self-contained CandidateBundles, and human
-promotion reads only `<run>/export/candidates/<candidate_id>`.
+The raw checkpoints are intentionally deleted only after successful human promotion: all
+shortlisted S1 and S2 weights have already been converted into self-contained CandidateBundles,
+and subsequent inference reads the promoted ModelBundle.
 
 ## Errors and CLI Output
 
 Configuration errors identify the invalid field or stage. Stage failures identify the stage and
 retain its original exception as the cause. CLI exit code is non-zero for invalid configuration,
-state mismatch, stage failure, candidate validation failure, or cleanup failure.
+state mismatch, stage failure, candidate validation failure, promotion failure, or cleanup failure.
 
-Successful output lists executed stages, skipped completed stages, the state path, and the
-cleanup result. No output claims a final model was selected.
+Successful pipeline output lists executed stages, skipped completed stages, and the state path;
+it reports no cleanup. Successful `export --select` output identifies the human-selected promoted
+model after cleanup completes.
 
 ## Testing
 
@@ -119,9 +125,10 @@ Coverage includes:
 - rerun skips completed stages and retries a failed or interrupted stage;
 - state identity mismatch is rejected;
 - atomic state replacement;
-- successful cleanup keeps validated reports, listening files, CandidateBundles, and state while
-  removing preprocessing, raw checkpoints, generated evaluation audio, and run-local debris;
-- cleanup does not run on failure, without `evaluate`, or before candidate validation succeeds;
+- evaluation completion preserves preprocessing and raw checkpoints for human review;
+- successful human promotion triggers cleanup that keeps validated reports, listening files,
+  CandidateBundles, state, and the promoted model while removing reproducible run artifacts;
+- cleanup does not run before selection or when promotion fails;
 - CLI registration and non-zero failure behavior.
 
 The final verification runs Task22 tests, the full regression suite, compileall, CLI help, and a
