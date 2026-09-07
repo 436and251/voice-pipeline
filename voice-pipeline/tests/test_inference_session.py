@@ -80,6 +80,46 @@ def test_reference_condition_preserves_official_v2proplus_inputs(monkeypatch, tm
     assert condition.prompt_frontend.phone_ids == [10, 11]
 
 
+def test_reference_spectrogram_computes_in_float32_before_half_cast(monkeypatch, tmp_path: Path):
+    audio = tmp_path / "reference.wav"
+    audio.write_bytes(b"placeholder")
+    captured = {}
+
+    def spectrogram(waveform, *args, **kwargs):
+        captured["input_dtype"] = waveform.dtype
+        return torch.ones(1, 1025, 4, dtype=waveform.dtype)
+
+    class Hubert:
+        def extract(self, waveform):
+            return torch.ones(1, 768, 4)
+
+    class Speaker:
+        def extract(self, waveform):
+            return torch.ones(1, 20_480)
+
+    class S2:
+        def extract_latent(self, features):
+            return torch.ones(1, 1, 4, dtype=torch.long)
+
+    monkeypatch.setattr("voice_pipeline.inference.reference.load_audio_32k", lambda path: torch.ones(96_000))
+    monkeypatch.setattr("voice_pipeline.inference.reference.spectrogram_torch", spectrogram)
+
+    condition = build_reference_condition(
+        audio,
+        None,
+        "ja",
+        frontend=object(),
+        hubert=Hubert(),
+        speaker=Speaker(),
+        s2=S2(),
+        device=torch.device("cpu"),
+        dtype=torch.float16,
+    )
+
+    assert captured["input_dtype"] == torch.float32
+    assert condition.spectrogram.dtype == torch.float16
+
+
 @pytest.mark.parametrize("samples", [95_999, 320_001])
 def test_reference_audio_must_be_between_three_and_ten_seconds(monkeypatch, tmp_path: Path, samples: int):
     audio = tmp_path / "reference.wav"

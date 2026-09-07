@@ -11,8 +11,6 @@ from torch.nn.parameter import Parameter
 
 from .patched_mha_with_cache import multi_head_attention_forward_patched
 
-F.multi_head_attention_forward = multi_head_attention_forward_patched
-
 
 class MultiheadAttention(Module):
     r"""Allows the model to jointly attend to information
@@ -360,7 +358,7 @@ class MultiheadAttention(Module):
                 query, key, value = [x.transpose(1, 0) for x in (query, key, value)]
 
         if not self._qkv_same_embed_dim:
-            attn_output, attn_output_weights = F.multi_head_attention_forward(
+            attn_output, attn_output_weights = multi_head_attention_forward_patched(
                 query,
                 key,
                 value,
@@ -386,7 +384,7 @@ class MultiheadAttention(Module):
                 cache=cache,
             )
         else:
-            attn_output, attn_output_weights = F.multi_head_attention_forward(
+            attn_output, attn_output_weights = multi_head_attention_forward_patched(
                 query,
                 key,
                 value,

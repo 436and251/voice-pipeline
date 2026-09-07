@@ -41,5 +41,6 @@ _SYMBOL_TO_ID = {symbol: index for index, symbol in enumerate(SYMBOLS)}
 
 
 def phone_ids(phones: list[str] | tuple[str, ...]) -> list[int]:
-    """Convert already-cleaned GPT-SoVITS phone symbols to v2 phone IDs."""
-    return [_SYMBOL_TO_ID[phone] for phone in phones]
+    """Convert phones to v2 IDs, matching upstream's unknown-phone fallback."""
+    unknown = _SYMBOL_TO_ID["UNK"]
+    return [_SYMBOL_TO_ID.get(phone, unknown) for phone in phones]

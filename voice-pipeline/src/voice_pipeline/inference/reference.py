@@ -43,13 +43,13 @@ def build_reference_condition(
     if peak > 1:
         conditioning_waveform = waveform / min(2.0, peak)
     spectrogram = spectrogram_torch(
-        conditioning_waveform.to(device=device, dtype=dtype).unsqueeze(0),
+        conditioning_waveform.to(device=device).unsqueeze(0),
         2048,
         32_000,
         640,
         2048,
         center=False,
-    )
+    ).to(dtype=dtype)
     waveform_16k = resample(waveform, 32_000, 16_000)
     waveform_16k = torch.cat((waveform_16k, torch.zeros(9_600, dtype=waveform_16k.dtype)))
     content = hubert.extract(waveform_16k).to(device=device, dtype=dtype)

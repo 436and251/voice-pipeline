@@ -1,5 +1,3 @@
-import pytest
-
 from voice_pipeline.core.gpt_sovits.frontend.symbols import SYMBOLS, phone_ids
 
 
@@ -15,6 +13,5 @@ def test_core_phone_ids_match_upstream_v2_order():
     ]
 
 
-def test_unknown_phone_is_not_silently_remapped():
-    with pytest.raises(KeyError):
-        phone_ids(["NOT_A_GPT_SOVITS_PHONE"])
+def test_unknown_phone_maps_to_upstream_unk():
+    assert phone_ids(["NOT_A_GPT_SOVITS_PHONE"]) == phone_ids(["UNK"])

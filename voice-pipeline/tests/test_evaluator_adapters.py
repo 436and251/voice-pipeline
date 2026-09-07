@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,6 +11,24 @@ from voice_pipeline.evaluation.asr import WhisperEvaluator
 from voice_pipeline.evaluation.prosody import evaluate_prosody
 from voice_pipeline.evaluation.speaker_similarity import WavLMSpeakerEvaluator
 from voice_pipeline.inference.wav import write_wav_atomic
+
+
+def test_s1_attention_import_does_not_patch_torch_globally() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.path.insert(0, sys.argv[1]); "
+            "import torch.nn.functional as f; original=f.multi_head_attention_forward; "
+            "import voice_pipeline.core.gpt_sovits.s1.modules.activation; "
+            "assert f.multi_head_attention_forward is original",
+            str(Path(__file__).parents[1] / "src"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 class FakeWhisperModel:
