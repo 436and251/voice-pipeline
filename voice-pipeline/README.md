@@ -1,9 +1,39 @@
 # GPT-SoVITS v2ProPlus 训推一体化框架设计文档
 
-> 版本：v0.1 Design Draft  
+> 版本：v0.1.0
 > 目标：构建一个**独立于官方 GPT-SoVITS 仓库**、但尽可能保持官方 v2ProPlus 算法行为不变的训练 / 推理 / 评测框架。  
 > 第一版仅实现 **GPT-SoVITS v2ProPlus**，但保留 GPT-SoVITS 家族内其他版本（如 v4）的扩展间隙。  
 > 核心质量目标：**仅使用日语训练数据进行 speaker adaptation 后，在中文、日语、英文三种语言下都保持逼真的同一说话人音色，同时尽量保持各语言正确的音素、重音、节奏和语调。**
+
+## 5 分钟快速开始
+
+```powershell
+Set-Location 'D:\AI-Training\voice-clone\voice-pipeline\voice-pipeline'
+& 'D:\Python_program_codes\TTS-Inference\.venv-gpt-sovits\Scripts\Activate.ps1'
+uv pip install -e . --no-deps
+voice-pipeline models verify --project-root . --profile v2ProPlus
+Copy-Item configs/train.example.yaml configs/train.local.yaml
+Copy-Item configs/pipeline.example.yaml configs/pipeline.local.yaml
+```
+
+编辑 `configs/train.local.yaml` 中的目标人名称、`data.list`、参考音频和评测句路径，然后：
+
+```powershell
+voice-pipeline run configs/pipeline.local.yaml --project-root .
+```
+
+流水线结束后试听 `runs/<目标人>/evaluation/listening/`，人工确认候选并晋升：
+
+```powershell
+voice-pipeline export --run runs/<目标人> --project-root . --select candidate_A
+voice-pipeline infer synthesize --model models/<目标人> --text '你好。' --lang zh --output hello.wav
+```
+
+只有第二条命令中的人工晋升成功后才会强清理原始训练 checkpoint。完整操作见
+[中文使用指南](README_使用指南.md)，专题说明见
+[架构](docs/architecture.md)、[训练](docs/training.md)、[评测](docs/evaluation.md)、
+[推理](docs/inference.md)、[故障排查](docs/troubleshooting.md)和
+[真实兼容性报告](docs/compatibility-v2proplus.md)。
 
 ## 1. 设计目标
 

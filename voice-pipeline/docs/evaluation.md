@@ -87,4 +87,6 @@ voice-pipeline export --run runs/<目标人> --project-root . --select candidate
 ```
 
 该命令把选中的 CandidateBundle 原子晋升为 `models/<目标人>/` 下的正式 ModelBundle，
-后续桌面应用、批处理或服务端推理只需要这个正式模型目录。
+后续桌面应用、批处理或服务端推理只需要这个正式模型目录。晋升成功后才会强清理
+`preprocess/`、原始 S1/S2 checkpoint 和可重建评测缓存；未选择、晋升失败或清理验证
+失败时不删除原始训练资源。
