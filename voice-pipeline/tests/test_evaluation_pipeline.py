@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +13,7 @@ import torch
 from voice_pipeline.common.errors import EvaluationError
 from voice_pipeline.common.model_bundle import BundleLanguages, BundleReference, ModelBundle, Shortlist
 from voice_pipeline.evaluation.config import EvaluationConfig, EvaluationConstraints, EvaluationPairing
-from voice_pipeline.evaluation.pipeline import EvaluationServices, run_evaluation
+from voice_pipeline.evaluation.pipeline import EvaluationServices, _snapshot_reference, run_evaluation
 from voice_pipeline.evaluation.runner import CandidateEvaluation, CandidateGeneration
 from voice_pipeline.inference.wav import write_wav_atomic
 
@@ -189,6 +191,77 @@ def test_pipeline_filters_s2_before_crossing_s1_and_exports_shortlist(tmp_path: 
         ModelBundle.load(outcome.run_dir / "export" / "candidates" / candidate.id)
         listening = outcome.run_dir / "evaluation" / "listening" / candidate.id
         assert sorted(path.name for path in listening.glob("*.wav")) == ["en.wav", "ja.wav", "zh.wav"]
+
+
+def test_pipeline_snapshots_reference_outside_project_root(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    config = _config(project_root)
+    external_reference = tmp_path / "dataset" / "reference.wav"
+    write_wav_atomic(external_reference, np.full(1600, 0.25, dtype=np.float32), 16000)
+    config = replace(
+        config,
+        reference=BundleReference(external_reference, "external reference", "ja"),
+        speaker_references=(external_reference,),
+    )
+
+    outcome = run_evaluation(config, services=_services([]))
+
+    snapshot = config.run_dir / "evaluation" / "reference" / f"{_sha256(external_reference)}.wav"
+    shortlist = Shortlist.load(outcome.run_dir, project_root)
+    assert snapshot.is_file()
+    assert _sha256(snapshot) == _sha256(external_reference)
+    assert shortlist.reference.audio == snapshot
+    for candidate in shortlist.candidates:
+        bundle = ModelBundle.load(outcome.run_dir / "export" / "candidates" / candidate.id)
+        assert _sha256(bundle.root / bundle.reference.audio) == _sha256(external_reference)
+
+
+def test_changed_external_reference_does_not_overwrite_existing_snapshot(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    config = _config(project_root)
+    external_reference = tmp_path / "dataset" / "reference.wav"
+    original = np.full(1600, 0.25, dtype=np.float32)
+    write_wav_atomic(external_reference, original, 16000)
+    config = replace(
+        config,
+        reference=BundleReference(external_reference, "external reference", "ja"),
+        speaker_references=(external_reference,),
+    )
+    outcome = run_evaluation(config, services=_services([]))
+    original_snapshot = Shortlist.load(outcome.run_dir, project_root).reference.audio
+    original_hash = _sha256(original_snapshot)
+
+    write_wav_atomic(external_reference, np.full(1600, -0.25, dtype=np.float32), 16000)
+    def unavailable_asr(config):
+        raise RuntimeError("ASR unavailable")
+
+    services = replace(_services([]), load_asr=unavailable_asr)
+    with pytest.raises(RuntimeError, match="ASR unavailable"):
+        run_evaluation(config, services=services)
+
+    assert original_snapshot.is_file()
+    assert _sha256(original_snapshot) == original_hash
+    assert Shortlist.load(outcome.run_dir, project_root).reference.audio == original_snapshot
+
+
+def test_reference_snapshot_rejects_directory_link_outside_evaluation(tmp_path: Path) -> None:
+    evaluation_dir = tmp_path / "run" / "evaluation"
+    evaluation_dir.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(outside), str(evaluation_dir / "reference"))
+    else:
+        (evaluation_dir / "reference").symlink_to(outside, target_is_directory=True)
+    source = tmp_path / "source.wav"
+    write_wav_atomic(source, np.full(1600, 0.1, dtype=np.float32), 16000)
+
+    with pytest.raises(EvaluationError, match="reference snapshot must remain inside evaluation directory"):
+        _snapshot_reference(BundleReference(source, "reference", "ja"), evaluation_dir)
+
+    assert not tuple(outside.iterdir())
 
 
 def test_pipeline_does_not_write_shortlist_when_all_fail(tmp_path: Path) -> None:

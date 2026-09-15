@@ -295,6 +295,10 @@ S2 与全部 S1 checkpoint。它使用 Faster-Whisper 计算中文/日文 CER、
 使用独立 WavLM speaker encoder 计算跨语言音色相似度，并统计基础韵律。ASR 和 WavLM
 只参与离线评测，不会进入最终推理链路。
 
+`evaluation.reference.audio` 和 `speaker_references` 可以位于项目目录之外。评测开始时会把
+用于推理条件的 reference 原子快照到 `runs/<目标人>/evaluation/reference/<SHA256>.wav`，
+shortlist 和候选包引用这份不可变快照；多个 speaker reference 仍直接用于计算评测 centroid。
+
 结果位于 `runs/<目标人>/evaluation/`：
 
 ```text

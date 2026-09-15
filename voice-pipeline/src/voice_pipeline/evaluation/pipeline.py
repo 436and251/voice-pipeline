@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
@@ -12,7 +12,7 @@ from typing import Callable
 import yaml
 
 from voice_pipeline.common.errors import EvaluationError
-from voice_pipeline.common.model_bundle import Shortlist
+from voice_pipeline.common.model_bundle import BundleReference, Shortlist
 from voice_pipeline.exporting.bundles import export_candidates
 from voice_pipeline.inference.job import run_synthesis_job
 from voice_pipeline.inference.session import InferenceSession
@@ -81,6 +81,7 @@ def run_evaluation(
     services = services or EvaluationServices()
     evaluation_dir = config.run_dir / "evaluation"
     evaluation_dir.mkdir(parents=True, exist_ok=True)
+    config = replace(config, reference=_snapshot_reference(config.reference, evaluation_dir))
     suite = load_evaluation_suite(config)
     s1_refs, s2_refs = discover_checkpoints(config)
     asr = services.load_asr(config)
@@ -228,6 +229,35 @@ def _write_text_atomic(path: Path, content: str) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _snapshot_reference(reference: BundleReference, evaluation_dir: Path) -> BundleReference:
+    evaluation_dir = Path(evaluation_dir).resolve()
+    reference_dir = evaluation_dir / "reference"
+    reference_dir.mkdir(parents=True, exist_ok=True)
+    reference_dir = reference_dir.resolve()
+    if not reference_dir.is_relative_to(evaluation_dir):
+        raise EvaluationError("reference snapshot must remain inside evaluation directory")
+    source = Path(reference.audio).resolve()
+    digest = _sha256(source)
+    destination = reference_dir / f"{digest}.wav"
+    if source == destination:
+        return reference
+    if destination.is_symlink():
+        raise EvaluationError("reference snapshot must not be a symbolic link")
+    if destination.is_file():
+        if _sha256(destination) != digest:
+            raise EvaluationError("existing reference snapshot does not match its filename")
+        return BundleReference(destination, reference.text, reference.language)
+    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        shutil.copy2(source, temporary)
+        if _sha256(temporary) != digest:
+            raise EvaluationError("reference audio changed while it was being snapshotted")
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return BundleReference(destination, reference.text, reference.language)
 
 
 def _publish_tree(temporary: Path, destination: Path) -> None:

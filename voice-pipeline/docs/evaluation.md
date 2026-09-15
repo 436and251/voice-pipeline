@@ -34,6 +34,12 @@ evaluation:
 每个 suite 文件每行一句，不能有空行；语言由 suite 所在字段明确指定。建议使用训练集中
 没有出现过、长度适中的自然句。`mixed.txt` 使用确实需要切换语言的句子。
 
+`reference.audio` 和 `speaker_references` 均可使用项目目录外的绝对路径。评测开始时会把
+推理 reference 原子快照到 `runs/<目标人>/evaluation/reference/<SHA256>.wav`，之后生成的
+工作包、shortlist 和候选包都引用该不可变副本；`speaker_references` 仍按原路径读取，
+用于计算说话人 centroid。外部 reference 内容变化时会创建新的哈希文件，不会覆盖已有
+候选所引用的旧快照。
+
 模型字段既可写 Hugging Face model ID，也可写已下载模型的绝对目录。Windows 未启用
 Developer Mode 时，推荐把 WavLM 下载到普通目录并将 `speaker` 直接设为该目录，例如：
 
