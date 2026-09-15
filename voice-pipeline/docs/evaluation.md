@@ -55,6 +55,13 @@ voice-pipeline evaluate -c configs/train.local.yaml --project-root .
 全部 S1 与这些 S2 的组合。通过硬约束的前 `shortlist_size` 个组合会以匿名 ID 导出为
 CandidateBundle，并分别生成中文、日文、英文试听音频。
 
+Base S2 也参加第一阶段。设训练产生 `N2` 个 S2 checkpoint、`N1` 个 S1 checkpoint，
+保留 `K = s2_keep` 个 S2，实际生成的唯一评测工作包数量为
+`(1 + N2) + K × N1`。例如默认 4 个 S2、5 个 S1、`s2_keep: 2` 会产生 15 组
+（`5 + 2 × 5 = 15`）`evaluation/work/<pair>/bundle`；这 15 组用于机器评测，不是 15 个
+人耳候选。只有排名前
+`shortlist_size: 3` 的组合才会进入 `export/candidates/` 和 `evaluation/listening/`。
+
 重点查看：
 
 - `evaluation/stage1-report.md`：S2 初筛的人类可读报告。
@@ -65,6 +72,12 @@ CandidateBundle，并分别生成中文、日文、英文试听音频。
 
 评测中断时可重新运行；已生成且校验一致的中间语音会复用。评测成功后会清理
 `evaluation/work/`，正式报告、CandidateBundle 和试听音频会保留。
+
+磁盘峰值可能出现在最终候选已经导出、`evaluation/work/` 尚未删除的瞬间。Acane 基线
+实测中，4 个 S2 完整恢复 checkpoint 占 7.21 GiB，5 个 S1 占 4.34 GiB，15 组临时
+推理权重占 4.59 GiB，评测 WAV 仅占 0.13 GiB。当前 800/500 step 基线至少预留
+20 GiB，建议预留 25 GiB；配置的 Hugging Face `cache_dir` 位于 run 目录之外，需要
+另行计算。失败或中断时不会自动删除 `work/`，这是为了保留可恢复现场。
 
 ## 指标和阈值
 

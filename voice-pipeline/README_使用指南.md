@@ -230,6 +230,33 @@ runs/speaker_001/
 这些 `.pt` 是包含模型、优化器、scheduler、GradScaler、随机数状态和精确 batch cursor
 的内部恢复 checkpoint，不是可以直接交给推理器的最终权重。
 
+#### 磁盘容量与 15 组评测工作包
+
+评测落盘的中间组合数不等于最终人耳候选数。设 S2、S1 分别保存 `N2`、`N1` 个训练
+checkpoint，第一阶段保留 `K = s2_keep` 个 S2，则唯一评测组合数为
+`(1 + N2) + K × N1`。默认基线保存 4 个 S2 和 5 个 S1，且 `s2_keep: 2`，因此会生成
+`5 + 2 × 5 = 15` 组临时工作包；自动评测结束后仍只导出 `shortlist_size: 3` 个匿名
+候选给人试听。
+
+Acane 首次真实运行的 16.36 GiB 占用拆分如下：
+
+| 目录 | 占用 | 原因 |
+|---|---:|---|
+| `training/s2/` | 7.21 GiB | 4 个约 1.80 GiB 的完整恢复 checkpoint |
+| `training/s1/` | 4.34 GiB | 5 个约 0.87 GiB 的完整恢复 checkpoint |
+| `evaluation/work/` | 4.59 GiB | 15 组、每组约 0.31 GiB 的临时 S1/S2 推理权重 |
+| `evaluation/generated/` | 0.13 GiB | 自动评测 WAV 与可恢复 chunk |
+| `preprocess/` | 0.09 GiB | 正式训练特征 |
+
+`evaluation/work/` 在评测完整成功、候选转换和试听生成完成后自动删除；评测失败或中断
+时会保留，以便原样重跑并复用已有权重与 WAV。人工选择前不要手工删除这些目录。本基线
+至少准备 20 GiB 可用空间，建议准备 25 GiB；`evaluation.models.cache_dir` 指向的
+Faster-Whisper/WavLM 缓存还需在其所在磁盘另行预留空间。
+
+如果磁盘不足，可增大 S1/S2 的 `checkpoint_every_steps` 来减少 checkpoint 数量，但会
+同时减少恢复点和自动评测可比较的候选；也可降低 `evaluation.pairing.s2_keep` 来减少
+第二阶段组合。`shortlist_size` 只控制最后导出给人耳的数量，不会减少前面的自动评测。
+
 ### 3.6 中断后恢复训练
 
 恢复时在 `configs/train.local.yaml` 中填写对应阶段的内部 checkpoint，并把目标 step
@@ -263,8 +290,8 @@ checkpoint 文件名中的 step 必须与内部 cursor 一致，框架会在加�
 voice-pipeline evaluate -c configs/train.local.yaml --project-root .
 ```
 
-评测器先用官方 Base S1 对全部 S2 checkpoint 做第一阶段筛选，再组合保留的 S2 与
-全部 S1 checkpoint。它使用 Faster-Whisper 计算中文/日文 CER、英文 WER 和语言一致性，
+评测器先用官方 Base S1 对 Base S2 和全部 S2 checkpoint 做第一阶段筛选，再组合保留的
+S2 与全部 S1 checkpoint。它使用 Faster-Whisper 计算中文/日文 CER、英文 WER 和语言一致性，
 使用独立 WavLM speaker encoder 计算跨语言音色相似度，并统计基础韵律。ASR 和 WavLM
 只参与离线评测，不会进入最终推理链路。
 

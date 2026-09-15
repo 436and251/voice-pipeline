@@ -520,6 +520,32 @@ runs/
 
 禁止中间产物散落在 TEMP、logs、weights、output 等项目根目录。
 
+评测期间的磁盘峰值必须单独预算。若 S2 产生 `N2` 个训练 checkpoint、S1 产生
+`N1` 个训练 checkpoint，并在第一阶段保留 `K = s2_keep` 个 S2，则需要实际推理的
+唯一组合数为：
+
+```text
+(1 + N2) + K * N1
+```
+
+前一项是 `Base S1 × (Base S2 + 全部 S2 checkpoint)`，后一项是每个保留 S2 新增的
+全部 fine-tuned S1 组合；重复的 `Base S1` 组合不会再生成。以 4 个 S2、5 个 S1、
+`s2_keep: 2` 为例，共有 `5 + 2 × 5 = 15` 组评测工作包，但最终只导出自动排序后的
+`shortlist_size` 个匿名候选供人耳选择，不是让人试听 15 组。
+
+一次 Acane 基线实测的失败现场共占 16.36 GiB：S2 恢复 checkpoint 7.21 GiB、S1
+恢复 checkpoint 4.34 GiB、15 组 `evaluation/work` 临时推理权重 4.59 GiB、评测 WAV
+0.13 GiB、预处理 0.09 GiB。恢复 checkpoint 很大，是因为包含模型、优化器、
+scheduler、GradScaler、随机数状态和数据游标；`evaluation/work` 则为每个待测组合保存
+独立的 S1/S2 推理权重，以便评测中断后恢复。评测完整成功后会删除 `work/`；失败或
+中断时按设计保留现场，人工选中并成功晋升最终候选前也不会强清理训练资源。
+
+当前 800/500 step 基线运行前至少预留 20 GiB，建议预留 25 GiB 余量；Hugging Face
+评测模型缓存位于配置的 `cache_dir`，不计入上述 `runs/<目标人>/` 数字。需要降低峰值
+时，优先增大 `checkpoint_every_steps` 来减少 checkpoint 数量，代价是恢复点和可比较
+候选更少；降低 `s2_keep` 会减少第二阶段组合数。不要在评测或人工选择完成前手动删除
+checkpoint、`evaluation/work` 或 `evaluation/generated`。
+
 训练明确成功后，训练入口应调用 `cleanup_after_training(..., True)`：默认只删除
 目标目录内的 `*.tmp` 和已 quarantine 且不在 valid 集合中的已知阶段产物，保留
 所有正式预处理结果。当前 S1/S2 trainer 都只在达到目标 step 且最终 checkpoint
