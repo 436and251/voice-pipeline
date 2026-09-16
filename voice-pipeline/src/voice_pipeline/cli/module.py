@@ -46,4 +46,25 @@ def run(
         raise typer.Exit(code=1) from error
 
 
+@app.command("promote")
+def promote(
+    job: Path = typer.Option(..., "--job", exists=True, dir_okay=False),
+    selection: str = typer.Option(..., "--selection"),
+    events_jsonl: bool = typer.Option(False, "--events-jsonl"),
+) -> None:
+    """Promote one explicit human-selected candidate."""
+    if not events_jsonl:
+        typer.echo("Error: --events-jsonl is required", err=True)
+        raise typer.Exit(code=2)
+    from voice_pipeline.module_api.promote import promote_module_candidate
+
+    try:
+        promote_module_candidate(
+            job.resolve(), selection, sys.stdout, diagnostics=sys.stderr
+        )
+    except Exception as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+
 __all__ = ["app"]

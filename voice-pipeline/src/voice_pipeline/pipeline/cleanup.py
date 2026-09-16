@@ -30,8 +30,7 @@ class CleanupResult:
 def cleanup_successful_run(run_dir: Path, project_root: Path) -> CleanupResult:
     run = Path(run_dir).resolve()
     root = Path(project_root).resolve()
-    _validate_run_boundary(run, root)
-    _validate_durable_artifacts(run, root)
+    validate_successful_run(run, root)
 
     removed: list[Path] = []
     _remove_unless(run, run, {"pipeline-state.json", "evaluation", "export"}, removed)
@@ -50,6 +49,14 @@ def cleanup_successful_run(run_dir: Path, project_root: Path) -> CleanupResult:
     )
     _remove_unless(run / "export", run, {"candidates"}, removed)
     return CleanupResult(tuple(removed))
+
+
+def validate_successful_run(run_dir: Path, project_root: Path) -> None:
+    """Validate every durable run artifact without deleting anything."""
+    run = Path(run_dir).resolve()
+    root = Path(project_root).resolve()
+    _validate_run_boundary(run, root)
+    _validate_durable_artifacts(run, root)
 
 
 def _validate_run_boundary(run: Path, project_root: Path) -> None:
@@ -197,4 +204,4 @@ def _remove_unless(
         removed.append(child)
 
 
-__all__ = ["CleanupResult", "cleanup_successful_run"]
+__all__ = ["CleanupResult", "cleanup_successful_run", "validate_successful_run"]
