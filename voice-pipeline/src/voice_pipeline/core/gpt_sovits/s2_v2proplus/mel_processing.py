@@ -84,6 +84,8 @@ def spec_to_mel_torch(spec, n_fft, num_mels, sampling_rate, fmin, fmax):
 
 
 def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax, center=False):
+    from librosa.filters import mel as librosa_mel_fn
+
     if torch.min(y) < -1.2:
         print("min value is ", torch.min(y))
     if torch.max(y) > 1.2:
