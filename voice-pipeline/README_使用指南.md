@@ -660,3 +660,139 @@ CPU 使用 FP32，速度会明显慢于 CUDA；CUDA 默认使用 FP16。
 
 说明同名任务的模型、文字、参考条件或参数发生了变化。换一个 `--output` 名称，或在
 确认不需要旧结果后传 `--overwrite`。
+
+## 5. AudioClone Studio 模块协议
+
+本节面向 GUI/宿主开发者。普通用户仍可继续使用第 3、4 节的人类 CLI；训练模块可以
+完全独立安装和运行，不依赖 Audio Miner 或 AudioClone Studio 前端。
+
+### 5.1 发现模块
+
+安装项目后执行：
+
+```powershell
+voice-pipeline module describe --json
+```
+
+该命令只向 stdout 输出一个 JSON 对象，不加载 Torch 或模型，也不创建运行目录。返回
+`protocol_version: 1`、稳定的 `module_id`、框架能力，以及可由宿主直接渲染的中英日
+三语参数标签、默认值和约束。宿主应读取描述符，不能在 GUI 中复制一套参数定义。
+
+### 5.2 创建 job.json
+
+每个任务使用独立目录，目录名必须等于 `job_id`：
+
+```text
+<project_root>/jobs/job-001/
+└── job.json
+```
+
+完整示例：
+
+```json
+{
+  "protocol_version": 1,
+  "job_id": "job-001",
+  "project_name": "Acane",
+  "project_root": "D:/AudioClone/workspaces/Acane",
+  "output_root": "D:/AudioClone/workspaces/Acane/runs",
+  "dataset_list": "D:/AudioClone/workspaces/Acane/dataset/data.list",
+  "dataset_sha256": "填写 data.list 的 64 位小写 SHA-256",
+  "framework": "v2ProPlus",
+  "stages": ["preprocess", "s2", "s1", "evaluate"],
+  "device": "cuda:0",
+  "precision": "fp16",
+  "parameters": {
+    "preprocess.resume": true,
+    "s2.batch_size": 2,
+    "s2.target_steps": 800,
+    "s2.learning_rate": 0.0001,
+    "s1.batch_size": 2,
+    "s1.target_optimizer_steps": 500,
+    "evaluation.shortlist_size": 3
+  },
+  "reference": {
+    "audio": "D:/AudioClone/workspaces/Acane/reference/reference.wav",
+    "text": "今日はいい天気ですね。",
+    "language": "ja"
+  },
+  "job_dir": "D:/AudioClone/workspaces/Acane/jobs/job-001"
+}
+```
+
+路径字段必须是绝对路径，并位于 `project_root` 内；`job_dir` 必须是 `job.json` 的父目录。
+`stages` 只能按 `preprocess → s2 → s1 → evaluate` 的相对顺序填写，不能重复。启用
+`evaluate` 时必须提供 `reference`，否则可写 `null`。`parameters` 可省略单个参数以使用
+描述符默认值，但不接受描述符未声明的字段。
+
+PowerShell 计算数据清单哈希：
+
+```powershell
+(Get-FileHash -Algorithm SHA256 'D:\dataset\data.list').Hash.ToLowerInvariant()
+```
+
+### 5.3 运行与读取事件
+
+```powershell
+voice-pipeline module run `
+  --job D:/AudioClone/workspaces/Acane/jobs/job-001/job.json `
+  --events-jsonl
+```
+
+stdout 只输出 UTF-8 JSONL，stderr 才是给人看的诊断。每行事件也会同步追加到
+`<job_dir>/events.jsonl`，宿主可在进程重启后恢复进度。典型事件：
+
+```json
+{"protocol_version":1,"job_id":"job-001","type":"stage_progress","timestamp":"2026-09-17T08:00:00+00:00","stage":"s2","message_key":"training.step","message_args":{"step":200,"total":800},"current":200,"total":800}
+{"protocol_version":1,"job_id":"job-001","type":"artifact","timestamp":"2026-09-17T08:20:00+00:00","artifacts":[{"type":"listening_manifest","path":"D:/AudioClone/workspaces/Acane/runs/Acane/evaluation/listening/manifest.json"}]}
+```
+
+宿主根据 `type`、`stage`、`message_key` 和 `message_args` 自行本地化显示，不解析英文
+日志文本。运行期间可能出现 `job_started`、`stage_started`、`stage_progress`、
+`checkpoint`、`stage_completed`、`stage_cache_hit`、`pipeline_completed`、`artifact`、
+`job_completed`、`stage_failed`、`job_failed`、`stage_cancelled` 和 `job_cancelled`。
+
+完成评测的标准产物类型为：
+
+| 类型 | 内容 |
+|---|---|
+| `pipeline_state` | 可恢复阶段状态 |
+| `evaluation_report` | 综合评测报告 |
+| `listening_manifest` | 候选及三语试听音频索引 |
+| `candidate_bundle` | 每个自动入围候选的可推理 ModelBundle |
+
+### 5.4 安全取消
+
+请求取消时创建标记文件，不要直接结束进程：
+
+```powershell
+New-Item -ItemType File `
+  'D:\AudioClone\workspaces\Acane\jobs\job-001\cancel.requested'
+```
+
+pipeline 会在安全边界检测标记，发出 `stage_cancelled` / `job_cancelled` 并保留可恢复
+状态。重新运行前由宿主删除这个明确的标记文件；不要删除 job 目录、checkpoint 或
+`pipeline-state.json`。
+
+### 5.5 人工晋升
+
+宿主先读取 `listening_manifest`，为每个候选播放中文、日语、英文试听，再让人选择。
+界面可以显示 `A/B/C`，但必须把对应的内部 ID 传给模块：
+
+```powershell
+voice-pipeline module promote `
+  --job D:/AudioClone/workspaces/Acane/jobs/job-001/job.json `
+  --selection candidate_A `
+  --events-jsonl
+```
+
+`A`、`B` 或任意不在试听 manifest 中的 ID 都会被拒绝。模块会再次验证评测报告、候选
+bundle、三语试听文件及 SHA-256；然后复制选中 bundle，成功后才清理临时训练产物。
+成功事件包含：
+
+```json
+{"protocol_version":1,"job_id":"job-001","type":"artifact","timestamp":"2026-09-17T08:30:00+00:00","artifacts":[{"type":"promoted_model","path":"D:/AudioClone/workspaces/Acane/models/Acane"}]}
+```
+
+若校验或候选复制失败，不会执行清理，候选试听和原始 checkpoint 会保留。最终模型位于
+`<project_root>/models/<project_name>/`，之后可以由第 4 节的独立推理接口加载。

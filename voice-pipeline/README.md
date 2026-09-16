@@ -1504,3 +1504,33 @@ ZH / JA / EN
 ```
 
 训练过程不以单语言 loss 或最后一个 checkpoint 为最终标准，而以跨语言综合评测和人耳最终裁决为准。
+
+## 50. AudioClone Studio 模块协议
+
+本仓库既是可独立安装、独立运行的训练/推理 CLI，也是 AudioClone Studio 可发现的
+训练模块。接入 GUI 不会改变原有命令，也不要求本仓库依赖或安装 Audio Miner：
+
+```text
+独立使用：用户 → voice-pipeline CLI → 训练 / 评测 / 推理
+统一应用：AudioClone Studio → module protocol v1 → 同一套 pipeline
+```
+
+模块握手是只读、轻量且无模型加载的：
+
+```powershell
+voice-pipeline module describe --json
+```
+
+宿主根据返回的 `module_id`、`protocol_version`、`frameworks`、三语 `labels`、字段默认值
+和约束生成界面。运行与人工晋升使用两个明确分离的机器命令：
+
+```powershell
+voice-pipeline module run --job D:/workspace/jobs/job-001/job.json --events-jsonl
+voice-pipeline module promote --job D:/workspace/jobs/job-001/job.json --selection candidate_A --events-jsonl
+```
+
+机器命令的 stdout 只包含一行一个对象的 UTF-8 JSONL 事件；普通诊断写入 stderr，完整
+事件同时追加到 `<job_dir>/events.jsonl`。宿主通过创建 `<job_dir>/cancel.requested`
+请求安全取消，不得强杀正在写 checkpoint 的训练进程。候选 `A/B/C` 只是 GUI 标签，协议
+边界必须传试听 manifest 中的内部 ID（如 `candidate_A`）。完整 job 格式、事件和取消示例
+见 [中文使用指南](README_使用指南.md#5-audioclone-studio-模块协议)。
