@@ -85,9 +85,9 @@ def execute_stage(
 
 
 def _run_dir(training_config: Path, project_root: Path) -> Path:
-    from voice_pipeline.training.config import TrainingConfig
+    from voice_pipeline.training.preprocess.config import PreprocessConfig
 
-    config = TrainingConfig.from_yaml(training_config, project_root)
+    config = PreprocessConfig.from_yaml(training_config, project_root)
     return (config.output_root / config.experiment_name).resolve()
 
 
