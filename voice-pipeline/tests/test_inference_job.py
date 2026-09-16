@@ -66,10 +66,13 @@ def test_job_writes_manifest_resumes_and_repairs_only_bad_chunks(tmp_path: Path)
 
     assert first.generated_chunks == 3 and first.resumed_chunks == 0
     assert output.is_file()
-    assert read_wav(output)[1].shape == (6 + 2 * 320,)
+    waveform = read_wav(output)[1]
+    assert waveform.shape == (6 + 2 * 320 + 9_600,)
+    assert np.all(waveform[-9_600:] == 0)
     work = output.with_suffix(".infer")
     manifest = json.loads((work / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["schema_version"] == 1
+    assert manifest["request"]["options"]["terminal_silence_ms"] == 300
     assert manifest["final"]["status"] == "completed"
     assert [entry["seed"] for entry in manifest["chunks"]] == [8, 9, 10]
     assert [entry["output"] for entry in manifest["chunks"]] == [

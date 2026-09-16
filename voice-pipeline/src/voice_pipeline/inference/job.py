@@ -10,6 +10,7 @@ import uuid
 
 import numpy as np
 
+from .assembly import TERMINAL_SILENCE_MS, assemble_waveforms
 from .session import validate_synthesis_options
 from .text_chunker import TextChunker
 from .wav import read_wav, write_wav_atomic
@@ -94,6 +95,7 @@ def run_synthesis_job(
         "repetition_penalty": repetition_penalty,
         "noise_scale": noise_scale,
         "speed": speed,
+        "terminal_silence_ms": TERMINAL_SILENCE_MS,
     }
     signature_material = {
         "identity": asdict(session.identity),
@@ -188,13 +190,7 @@ def run_synthesis_job(
         if sample_rate != 32_000:
             raise ValueError("chunk WAV must use a 32000 Hz sample rate")
         waveforms.append(waveform)
-    pause = np.zeros(round(32_000 * pause_ms / 1000), dtype=np.float32)
-    assembled: list[np.ndarray] = []
-    for index, waveform in enumerate(waveforms):
-        if index and pause.size:
-            assembled.append(pause)
-        assembled.append(waveform)
-    write_wav_atomic(output_path, np.concatenate(assembled), 32_000)
+    write_wav_atomic(output_path, assemble_waveforms(waveforms, 32_000, pause_ms), 32_000)
     manifest["final"] = {"status": "completed", "sha256": _sha256(output_path)}
     _write_json_atomic(manifest_path, manifest)
     return JobResult(output_path, generated, resumed)

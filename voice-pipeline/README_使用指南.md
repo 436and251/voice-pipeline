@@ -559,8 +559,8 @@ voice-pipeline infer benchmark `
   --runs 5
 ```
 
-输出包括生成音频时长、平均耗时、最快耗时和 RTF。RTF 小于 1 表示平均生成速度快于
-实时播放速度。
+输出包括生成语音时长、平均耗时、最快耗时和 RTF。推理结果末尾固定追加的 300 ms
+保护静音不计入语音时长；RTF 小于 1 表示平均生成速度快于实时播放速度。
 
 ### 4.7 在桌面助手或后台进程中调用
 
@@ -585,6 +585,9 @@ result = synthesize_text(
 print(result.sample_rate)     # 32000
 print(result.waveform.shape)  # 一维 float32 NumPy 数组
 ```
+
+完整输出末尾会按官方 GPT-SoVITS 行为自动追加 300 ms 静音，避免播放器吞掉最后一个字；
+`pause_ms` 只调整长文本 chunk 之间的停顿。
 
 覆盖参考音频：
 

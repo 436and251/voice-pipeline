@@ -225,7 +225,7 @@ def test_infer_benchmark_warms_up_then_reports_three_measured_runs(fake_runtime,
 
     def synthesize_text(session, text, language, **options):
         synthesis_calls.append((session, text, language, options))
-        return InferenceResult(np.zeros(64_000, dtype=np.float32), 32_000, options["seed"])
+        return InferenceResult(np.zeros(73_600, dtype=np.float32), 32_000, options["seed"])
 
     monkeypatch.setattr(infer_cli, "synthesize_text", synthesize_text, raising=False)
     monkeypatch.setattr(infer_cli, "perf_counter", lambda: next(clock), raising=False)

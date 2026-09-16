@@ -967,8 +967,9 @@ result = synthesize_text(session, "今 morning，今天也请多关照。", "mix
 # result.waveform: mono float32 NumPy array; result.sample_rate: 32000
 ```
 
-`synthesize_text` 会使用下述长文本切分规则，并默认在 chunk 之间加入 10 ms
-静音；`pause_ms` 可传非负整数覆盖。同一个 session 可以长期驻留并被不同调用方
+`synthesize_text` 会使用下述长文本切分规则，默认在 chunk 之间加入 10 ms
+静音，并按官方行为在完整输出末尾追加 300 ms 静音，防止尾字被播放器截断；
+`pause_ms` 只控制 chunk 间隔，可传非负整数覆盖。同一个 session 可以长期驻留并被不同调用方
 复用。单 session 内推理会串行执行；需要 GPU 并发时使用多个工作进程或模型副本。
 
 默认使用 ModelBundle 自带参考条件。若调用时覆盖参考音频，必须同时明确参考

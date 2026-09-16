@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from .assembly import assemble_waveforms
 from .result import InferenceResult
 from .session import validate_synthesis_options
 from .text_chunker import TextChunker
@@ -52,13 +53,7 @@ def synthesize_text(
         waveforms.append(waveform)
 
     assert sample_rate is not None
-    pause = np.zeros(round(sample_rate * pause_ms / 1000), dtype=np.float32)
-    assembled: list[np.ndarray] = []
-    for index, waveform in enumerate(waveforms):
-        if index and pause.size:
-            assembled.append(pause)
-        assembled.append(waveform)
-    return InferenceResult(np.ascontiguousarray(np.concatenate(assembled)), sample_rate, seed)
+    return InferenceResult(assemble_waveforms(waveforms, sample_rate, pause_ms), sample_rate, seed)
 
 
 __all__ = ["synthesize_text"]

@@ -8,6 +8,7 @@ from time import perf_counter
 import typer
 import yaml
 
+from voice_pipeline.inference.assembly import TERMINAL_SILENCE_MS
 from voice_pipeline.inference.job import resolve_output_path, run_synthesis_job
 from voice_pipeline.inference.long_text import synthesize_text
 from voice_pipeline.inference.session import InferenceSession
@@ -141,7 +142,8 @@ def benchmark(
             result = synthesize_text(session, source, language, **options)
             elapsed.append(perf_counter() - started)
         assert result is not None
-        audio_seconds = result.waveform.size / result.sample_rate
+        terminal_samples = round(result.sample_rate * TERMINAL_SILENCE_MS / 1000)
+        audio_seconds = (result.waveform.size - terminal_samples) / result.sample_rate
         if audio_seconds <= 0:
             raise RuntimeError("benchmark produced empty audio")
         average = sum(elapsed) / len(elapsed)

@@ -30,8 +30,9 @@ def test_long_text_uses_derived_seeds_and_default_ten_ms_pause():
     assert all(call.language == "zh" and call.top_k == 5 for call in session.calls)
     assert result.sample_rate == 32_000 and result.seed == 8
     assert result.waveform.dtype == np.float32
-    assert result.waveform.shape == (6 + 2 * 320,)
+    assert result.waveform.shape == (6 + 2 * 320 + 9_600,)
     assert np.count_nonzero(result.waveform) == 6
+    assert np.all(result.waveform[-9_600:] == 0)
 
 
 @pytest.mark.parametrize("pause_ms, silence_samples", [(0, 0), (25, 800)])
@@ -43,7 +44,7 @@ def test_long_text_pause_is_configurable(pause_ms: int, silence_samples: int):
         max_chars=3,
         pause_ms=pause_ms,
     )
-    assert result.waveform.shape == (4 + silence_samples,)
+    assert result.waveform.shape == (4 + silence_samples + 9_600,)
 
 
 @pytest.mark.parametrize("pause_ms", [-1, True, 1.5])
