@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import torch
-
 
 @dataclass(frozen=True, slots=True)
 class S2TrainConfig:
@@ -29,6 +27,8 @@ class S2TrainConfig:
     c_kl: float = 1.0
 
     def validate(self) -> None:
+        import torch
+
         if not self.preprocess_dir.is_dir():
             raise ValueError(f"preprocess_dir does not exist: {self.preprocess_dir}")
         for name, path, expected in (

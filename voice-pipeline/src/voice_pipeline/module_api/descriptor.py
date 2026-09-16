@@ -71,7 +71,7 @@ def build_descriptor() -> dict[str, object]:
                         "key": "evaluation.shortlist_size",
                         "kind": "integer",
                         "default": 3,
-                        "constraints": {"minimum": 1},
+                        "constraints": {"minimum": 1, "maximum": 26},
                         "labels": _labels("试听候选数", "Listening candidates", "試聴候補数"),
                     },
                 ],

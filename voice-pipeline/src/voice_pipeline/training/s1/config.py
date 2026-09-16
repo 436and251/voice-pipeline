@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import torch
-
 
 @dataclass(frozen=True, slots=True)
 class S1TrainConfig:
@@ -25,6 +23,8 @@ class S1TrainConfig:
     max_ps_ratio: float = 25.0
 
     def validate(self) -> None:
+        import torch
+
         if not self.preprocess_dir.is_dir():
             raise ValueError(f"preprocess_dir does not exist: {self.preprocess_dir}")
         if self.base_s1_path.name != "s1v3.ckpt":

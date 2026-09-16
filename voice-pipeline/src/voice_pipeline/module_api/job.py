@@ -14,6 +14,7 @@ from voice_pipeline.module_api.descriptor import build_descriptor
 _FIELDS = {
     "protocol_version",
     "job_id",
+    "project_name",
     "project_root",
     "output_root",
     "dataset_list",
@@ -23,16 +24,26 @@ _FIELDS = {
     "device",
     "precision",
     "parameters",
+    "reference",
     "job_dir",
 }
 _STAGES = ("preprocess", "s2", "s1", "evaluate")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _JOB_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleReference:
+    audio: Path
+    text: str | None
+    language: str
 
 
 @dataclass(frozen=True, slots=True)
 class ModuleJob:
     job_id: str
+    project_name: str
     project_root: Path
     output_root: Path
     dataset_list: Path
@@ -42,6 +53,7 @@ class ModuleJob:
     device: str
     precision: str
     parameters: dict[str, object]
+    reference: ModuleReference | None
     job_dir: Path
 
     @classmethod
@@ -67,6 +79,9 @@ class ModuleJob:
         job_id = _nonempty_string(payload["job_id"], "job_id")
         if _JOB_ID.fullmatch(job_id) is None:
             raise ValueError("job_id must contain only letters, numbers, dots, underscores, or hyphens")
+        project_name = _nonempty_string(payload["project_name"], "project_name")
+        if _PROJECT_NAME.fullmatch(project_name) is None:
+            raise ValueError("project_name must contain only letters, numbers, underscores, or hyphens")
         project_root = _absolute_path(payload["project_root"], "project_root")
         output_root = _absolute_path(payload["output_root"], "output_root")
         dataset_list = _absolute_path(payload["dataset_list"], "dataset_list")
@@ -101,9 +116,15 @@ class ModuleJob:
         if precision not in {"fp16", "fp32"}:
             raise ValueError(f"unsupported precision: {precision}")
         parameters = _parameters(payload["parameters"], framework, project_root)
+        reference = _reference(
+            payload["reference"],
+            project_root,
+            required="evaluate" in stages,
+        )
 
         return cls(
             job_id=job_id,
+            project_name=project_name,
             project_root=project_root,
             output_root=output_root,
             dataset_list=dataset_list,
@@ -113,6 +134,7 @@ class ModuleJob:
             device=device,
             precision=precision,
             parameters=parameters,
+            reference=reference,
             job_dir=job_dir,
         )
 
@@ -161,6 +183,33 @@ def _parameters(value: object, framework: str, project_root: Path) -> dict[str, 
         declaration = declarations[key]
         _validate_parameter(key, parameter, declaration, project_root)
     return dict(value)
+
+
+def _reference(value: object, project_root: Path, *, required: bool) -> ModuleReference | None:
+    if value is None:
+        if required:
+            raise ValueError("reference is required when evaluation is enabled")
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("reference must be an object")
+    fields = {"audio", "text", "language"}
+    unknown = set(value) - fields
+    missing = fields - set(value)
+    if unknown:
+        raise ValueError(f"unknown reference field: {', '.join(sorted(unknown))}")
+    if missing:
+        raise ValueError(f"missing reference field: {', '.join(sorted(missing))}")
+    audio = _absolute_path(value["audio"], "reference.audio")
+    _require_contained(audio, project_root, "reference.audio")
+    if not audio.is_file():
+        raise ValueError(f"reference.audio does not exist: {audio}")
+    text = value["text"]
+    if text is not None and (not isinstance(text, str) or not text.strip()):
+        raise ValueError("reference.text must be null or a non-empty string")
+    language = value["language"]
+    if not isinstance(language, str) or language not in {"zh", "ja", "en"}:
+        raise ValueError("reference.language must be zh, ja, or en")
+    return ModuleReference(audio, text.strip() if text is not None else None, language)
 
 
 def _validate_parameter(key: str, value: object, declaration: dict, root: Path) -> None:
@@ -237,4 +286,4 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-__all__ = ["ModuleJob"]
+__all__ = ["ModuleJob", "ModuleReference"]

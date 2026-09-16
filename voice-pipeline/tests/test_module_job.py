@@ -17,6 +17,8 @@ def job_file(tmp_path: Path) -> Path:
     dataset_list = project_root / "dataset" / "dataset.list"
     dataset_list.parent.mkdir(parents=True)
     dataset_list.write_text("clip.wav|speaker|ja|テスト\n", encoding="utf-8")
+    reference_audio = project_root / "reference.wav"
+    reference_audio.write_bytes(b"reference")
     output_root = project_root / "runs"
     output_root.mkdir()
     job_dir = project_root / "jobs" / "job-001"
@@ -25,6 +27,7 @@ def job_file(tmp_path: Path) -> Path:
     payload = {
         "protocol_version": 1,
         "job_id": "job-001",
+        "project_name": "Acane",
         "project_root": str(project_root.resolve()),
         "output_root": str(output_root.resolve()),
         "dataset_list": str(dataset_list.resolve()),
@@ -34,6 +37,11 @@ def job_file(tmp_path: Path) -> Path:
         "device": "cuda:0",
         "precision": "fp16",
         "parameters": {"s2.batch_size": 2, "preprocess.resume": True},
+        "reference": {
+            "audio": str(reference_audio.resolve()),
+            "text": "参照音声です。",
+            "language": "ja",
+        },
         "job_dir": str(job_dir.resolve()),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -52,9 +60,12 @@ def test_job_loads_valid_contract_as_resolved_frozen_value(job_file: Path):
     job = ModuleJob.load(job_file)
 
     assert job.job_id == "job-001"
+    assert job.project_name == "Acane"
     assert job.project_root == Path(_payload(job_file)["project_root"])
     assert job.stages == ("preprocess", "s2", "s1", "evaluate")
     assert job.parameters == {"s2.batch_size": 2, "preprocess.resume": True}
+    assert job.reference is not None
+    assert job.reference.language == "ja"
     with pytest.raises(FrozenInstanceError):
         job.job_id = "changed"
 
@@ -134,6 +145,16 @@ def test_job_id_must_be_safe_and_match_its_directory(job_file: Path, job_id: str
         ModuleJob.load(job_file)
 
 
+@pytest.mark.parametrize("project_name", ["", "Acane/other", "名字", True])
+def test_job_rejects_unsafe_project_name(job_file: Path, project_name: object):
+    payload = _payload(job_file)
+    payload["project_name"] = project_name
+    _write(job_file, payload)
+
+    with pytest.raises(ValueError, match="project_name"):
+        ModuleJob.load(job_file)
+
+
 def test_job_rejects_boolean_as_integer_parameter(job_file: Path):
     payload = _payload(job_file)
     payload["parameters"] = {"s1.batch_size": True}
@@ -149,6 +170,15 @@ def test_job_enforces_numeric_parameter_constraints(job_file: Path):
     _write(job_file, payload)
 
     with pytest.raises(ValueError, match="s2.target_steps.*at least 1"):
+        ModuleJob.load(job_file)
+
+
+def test_job_enforces_candidate_label_limit(job_file: Path):
+    payload = _payload(job_file)
+    payload["parameters"] = {"evaluation.shortlist_size": 27}
+    _write(job_file, payload)
+
+    with pytest.raises(ValueError, match="evaluation.shortlist_size.*at most 26"):
         ModuleJob.load(job_file)
 
 
@@ -190,6 +220,52 @@ def test_job_rejects_dataset_outside_project(job_file: Path):
     _write(job_file, payload)
 
     with pytest.raises(ValueError, match="dataset_list"):
+        ModuleJob.load(job_file)
+
+
+def test_job_requires_reference_when_evaluation_is_enabled(job_file: Path):
+    payload = _payload(job_file)
+    payload["reference"] = None
+    _write(job_file, payload)
+
+    with pytest.raises(ValueError, match="reference"):
+        ModuleJob.load(job_file)
+
+
+def test_job_allows_no_reference_without_evaluation(job_file: Path):
+    payload = _payload(job_file)
+    payload["stages"] = ["preprocess", "s2", "s1"]
+    payload["reference"] = None
+    _write(job_file, payload)
+
+    assert ModuleJob.load(job_file).reference is None
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda reference: reference.update(language="mixed"), "reference.language"),
+        (lambda reference: reference.update(text=""), "reference.text"),
+        (lambda reference: reference.update(extra=True), "unknown reference field"),
+    ],
+)
+def test_job_strictly_validates_reference(job_file: Path, change, message: str):
+    payload = _payload(job_file)
+    change(payload["reference"])
+    _write(job_file, payload)
+
+    with pytest.raises(ValueError, match=message):
+        ModuleJob.load(job_file)
+
+
+def test_job_rejects_reference_audio_outside_project(job_file: Path):
+    outside = job_file.parents[3] / "outside.wav"
+    outside.write_bytes(b"outside")
+    payload = _payload(job_file)
+    payload["reference"]["audio"] = str(outside.resolve())
+    _write(job_file, payload)
+
+    with pytest.raises(ValueError, match="reference.audio"):
         ModuleJob.load(job_file)
 
 
