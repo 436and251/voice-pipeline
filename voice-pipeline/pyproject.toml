@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = ["typer>=0.12", "PyYAML>=6"]
 
 [project.scripts]
-voice-pipeline = "voice_pipeline.cli.main:app"
+voice-pipeline = "voice_pipeline.cli.dispatch:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
