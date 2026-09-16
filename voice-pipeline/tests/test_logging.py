@@ -60,3 +60,17 @@ def test_pipeline_logger_does_not_append_partial_invalid_json(tmp_path):
         logger.log("s1", "bad_metric", metrics={"value": object()})
 
     assert len(path.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_pipeline_logger_sends_records_without_changing_human_echo(tmp_path, capsys):
+    records = []
+    logger = PipelineLogger(tmp_path / "training.jsonl", record_sink=records.append)
+
+    logger.log("s1", "optimizer_step", optimizer_step=2, metrics={"loss": 1.25})
+    logger.log("s1", "checkpoint", optimizer_step=2)
+
+    assert [record["event"] for record in records] == ["optimizer_step", "checkpoint"]
+    assert records[0]["metrics"] == {"loss": 1.25}
+    output = capsys.readouterr().out
+    assert "[S1] optimizer_step optimizer_step=2 loss=1.25" in output
+    assert "[S1] checkpoint optimizer_step=2" in output
