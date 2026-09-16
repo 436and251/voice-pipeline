@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from voice_pipeline.common.state import RunState, StageStatus
+from voice_pipeline.module_api.cancellation import FileCancellationToken
 from voice_pipeline.pipeline.graph import StageGraph
 from voice_pipeline.training.manifest import ManifestIssue, ManifestRecord, allowed_bad_records
 
@@ -69,7 +70,11 @@ class PreprocessPipeline:
         records: list[ManifestRecord],
         initial_issues: list[ManifestIssue],
         selected_stage: str | None = None,
+        *,
+        cancellation: FileCancellationToken | None = None,
     ) -> PreprocessSummary:
+        if cancellation is not None:
+            cancellation.raise_if_requested()
         total_records = len(records) + len(initial_issues)
         allowed_bad = allowed_bad_records(total_records)
         quarantine = {
@@ -106,6 +111,8 @@ class PreprocessPipeline:
             started = False
             warnings = 0
             for record in records:
+                if cancellation is not None:
+                    cancellation.raise_if_requested()
                 if record.sample_id in quarantine:
                     continue
                 signature = stage.signature(record, self.context)
@@ -148,6 +155,9 @@ class PreprocessPipeline:
                     "metadata": result.metadata,
                 }
 
+            if cancellation is not None:
+                cancellation.raise_if_requested()
+
             if changed:
                 self._write_indexes(indexes)
                 index_path = self._index_path(stage_name)
@@ -156,6 +166,8 @@ class PreprocessPipeline:
         if selected_stage is None and self.eligibility_validator is not None:
             eligibility_changed = False
             for record in records:
+                if cancellation is not None:
+                    cancellation.raise_if_requested()
                 if record.sample_id in quarantine:
                     continue
                 try:
@@ -174,6 +186,8 @@ class PreprocessPipeline:
                     self._purge_sample(record.sample_id, indexes)
                     self._write_quarantine(quarantine_path, quarantine)
                     self._check_limit(quarantine, allowed_bad)
+            if cancellation is not None:
+                cancellation.raise_if_requested()
             if eligibility_changed:
                 self._write_indexes(indexes)
 

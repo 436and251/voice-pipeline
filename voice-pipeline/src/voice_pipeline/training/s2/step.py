@@ -5,19 +5,19 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
-from voice_pipeline.core.gpt_sovits.s2_v2proplus.commons import clip_grad_value_, slice_segments
-from voice_pipeline.core.gpt_sovits.s2_v2proplus.losses import (
+from .config import S2TrainConfig
+
+
+(
+    clip_grad_value_,
+    slice_segments,
     discriminator_loss,
     feature_loss,
     generator_loss,
     kl_loss,
-)
-from voice_pipeline.core.gpt_sovits.s2_v2proplus.mel_processing import (
     mel_spectrogram_torch,
     spec_to_mel_torch,
-)
-
-from .config import S2TrainConfig
+) = (None,) * 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +42,26 @@ def train_s2_step(
     scaler,
     config: S2TrainConfig,
 ) -> S2StepResult:
+    global clip_grad_value_, slice_segments
+    global discriminator_loss, feature_loss, generator_loss, kl_loss
+    global mel_spectrogram_torch, spec_to_mel_torch
+    dependencies = (
+        clip_grad_value_, slice_segments, discriminator_loss, feature_loss,
+        generator_loss, kl_loss, mel_spectrogram_torch, spec_to_mel_torch,
+    )
+    if any(dependency is None for dependency in dependencies):
+        from voice_pipeline.core.gpt_sovits.s2_v2proplus import commons, losses
+        from voice_pipeline.core.gpt_sovits.s2_v2proplus import mel_processing
+
+        clip_grad_value_ = commons.clip_grad_value_
+        slice_segments = commons.slice_segments
+        discriminator_loss = losses.discriminator_loss
+        feature_loss = losses.feature_loss
+        generator_loss = losses.generator_loss
+        kl_loss = losses.kl_loss
+        mel_spectrogram_torch = mel_processing.mel_spectrogram_torch
+        spec_to_mel_torch = mel_processing.spec_to_mel_torch
+
     device = torch.device(config.device)
     ssl, ssl_lengths, spec, spec_lengths, wav, wav_lengths, text, text_lengths, sv_emb = (
         tensor.to(device, non_blocking=device.type == "cuda") for tensor in batch

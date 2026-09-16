@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from voice_pipeline.pipeline import orchestrator
+from voice_pipeline.module_api.cancellation import FileCancellationToken, ModuleCancelled
 from voice_pipeline.pipeline.orchestrator import PipelineStageError, run_pipeline
 
 
@@ -349,3 +350,92 @@ def test_stage_failure_preserves_training_artifacts(
             ),
         )
     assert raw_checkpoint.is_file()
+
+
+def test_pipeline_emits_ordered_stage_and_resume_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = _pipeline_fixture(tmp_path, ["preprocess", "s2"])
+    monkeypatch.setattr(
+        orchestrator, "_run_dir", lambda config, root: tmp_path / "runs" / "speaker"
+    )
+    events: list[dict[str, object]] = []
+
+    run_pipeline(
+        pipeline,
+        tmp_path,
+        execute_stage=lambda stage, config, root: None,
+        event_sink=events.append,
+    )
+
+    assert [(event["type"], event.get("stage")) for event in events] == [
+        ("stage_started", "preprocess"),
+        ("stage_completed", "preprocess"),
+        ("stage_started", "s2"),
+        ("stage_completed", "s2"),
+        ("pipeline_completed", None),
+    ]
+
+    events.clear()
+    run_pipeline(
+        pipeline,
+        tmp_path,
+        execute_stage=lambda stage, config, root: None,
+        event_sink=events.append,
+    )
+    assert [(event["type"], event.get("stage")) for event in events] == [
+        ("stage_cache_hit", "preprocess"),
+        ("stage_cache_hit", "s2"),
+        ("pipeline_completed", None),
+    ]
+
+
+def test_pipeline_emits_failure_without_running_later_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = _pipeline_fixture(tmp_path, ["preprocess", "s2"])
+    monkeypatch.setattr(
+        orchestrator, "_run_dir", lambda config, root: tmp_path / "runs" / "speaker"
+    )
+    events: list[dict[str, object]] = []
+
+    with pytest.raises(PipelineStageError):
+        run_pipeline(
+            pipeline,
+            tmp_path,
+            execute_stage=lambda stage, config, root: (_ for _ in ()).throw(
+                RuntimeError("boom")
+            ),
+            event_sink=events.append,
+        )
+
+    assert [event["type"] for event in events] == ["stage_started", "stage_failed"]
+    assert events[-1]["stage"] == "preprocess"
+    assert events[-1]["message_args"] == {"error": "boom"}
+
+
+def test_pipeline_cancellation_leaves_current_stage_resumable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = _pipeline_fixture(tmp_path, ["preprocess", "s2"])
+    run_dir = tmp_path / "runs" / "speaker"
+    monkeypatch.setattr(orchestrator, "_run_dir", lambda config, root: run_dir)
+    marker = tmp_path / "cancel.requested"
+    token = FileCancellationToken(marker)
+    events: list[dict[str, object]] = []
+
+    def request_cancel(stage: str, config: Path, root: Path) -> None:
+        marker.touch()
+
+    with pytest.raises(ModuleCancelled):
+        run_pipeline(
+            pipeline,
+            tmp_path,
+            execute_stage=request_cancel,
+            event_sink=events.append,
+            cancellation=token,
+        )
+
+    state = json.loads((run_dir / "pipeline-state.json").read_text(encoding="utf-8"))
+    assert state["stages"] == {"preprocess": "running", "s2": "pending"}
+    assert [event["type"] for event in events] == ["stage_started", "stage_cancelled"]

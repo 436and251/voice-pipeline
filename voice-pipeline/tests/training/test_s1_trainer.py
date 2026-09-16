@@ -8,7 +8,14 @@ import torch
 
 from voice_pipeline.common.logging import PipelineLogger
 from voice_pipeline.core.gpt_sovits.s1 import FixedS1LRSchedule
-from voice_pipeline.training.s1 import S1TrainConfig, S1Trainer, S1TrainingCursor, load_checkpoint
+from voice_pipeline.module_api.cancellation import FileCancellationToken, ModuleCancelled
+from voice_pipeline.training.s1 import (
+    S1TrainConfig,
+    S1Trainer,
+    S1TrainingCursor,
+    checkpoint_path,
+    load_checkpoint,
+)
 from voice_pipeline.training.s1.optim import build_optimizer
 
 
@@ -46,7 +53,15 @@ def _batch() -> dict[str, torch.Tensor | list[str]]:
     }
 
 
-def _trainer(tmp_path: Path, batch_count: int, target: int, *, cleanup=lambda *_: None) -> S1Trainer:
+def _trainer(
+    tmp_path: Path,
+    batch_count: int,
+    target: int,
+    *,
+    cleanup=lambda *_: None,
+    event_sink=None,
+    cancellation=None,
+) -> S1Trainer:
     model = TinyS1()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     return S1Trainer(
@@ -60,6 +75,8 @@ def _trainer(tmp_path: Path, batch_count: int, target: int, *, cleanup=lambda *_
         logger=PipelineLogger(tmp_path / "events.jsonl", echo=False),
         cursor=S1TrainingCursor(),
         cleanup=cleanup,
+        event_sink=event_sink,
+        cancellation=cancellation,
     )
 
 
@@ -194,4 +211,33 @@ def test_keyboard_interrupt_writes_no_checkpoint_and_performs_no_cleanup(tmp_pat
     with pytest.raises(KeyboardInterrupt):
         trainer.train()
     assert not (tmp_path / "out/training/s1/checkpoints").exists()
+    assert cleanup_calls == []
+
+
+def test_cancellation_after_optimizer_step_saves_resumable_checkpoint(tmp_path: Path) -> None:
+    marker = tmp_path / "cancel.requested"
+    cleanup_calls = []
+    events = []
+
+    def receive(event):
+        events.append(event)
+        if event["type"] == "stage_progress":
+            marker.touch()
+
+    trainer = _trainer(
+        tmp_path,
+        8,
+        2,
+        cleanup=lambda *args: cleanup_calls.append(args),
+        event_sink=receive,
+        cancellation=FileCancellationToken(marker),
+    )
+
+    with pytest.raises(ModuleCancelled):
+        trainer.train()
+
+    checkpoint = checkpoint_path(trainer.config.output_dir, 1)
+    assert checkpoint.is_file()
+    assert trainer.cursor == S1TrainingCursor(1, 0, 4, 0)
+    assert [event["type"] for event in events] == ["stage_progress", "checkpoint"]
     assert cleanup_calls == []

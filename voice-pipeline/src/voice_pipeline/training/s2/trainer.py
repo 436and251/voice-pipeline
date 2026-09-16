@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 import random
@@ -8,10 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from voice_pipeline.common.logging import PipelineLogger
-from voice_pipeline.core.gpt_sovits.compatibility.s2_checkpoint import (
-    load_s2_discriminator,
-    load_s2_generator,
-)
+from voice_pipeline.module_api.cancellation import FileCancellationToken
 from voice_pipeline.training.preprocess.cleanup import cleanup_after_training
 
 from .checkpoint import TrainingCursor, checkpoint_path, load_checkpoint, save_checkpoint
@@ -19,6 +17,22 @@ from .config import S2TrainConfig
 from .data import DeterministicEpochSampler, S2Collate, S2Dataset
 from .optim import build_optimizers, build_schedulers
 from .step import train_s2_step
+
+
+def load_s2_generator(path: Path, device):
+    from voice_pipeline.core.gpt_sovits.compatibility.s2_checkpoint import (
+        load_s2_generator as load,
+    )
+
+    return load(path, device)
+
+
+def load_s2_discriminator(path: Path, device):
+    from voice_pipeline.core.gpt_sovits.compatibility.s2_checkpoint import (
+        load_s2_discriminator as load,
+    )
+
+    return load(path, device)
 
 
 class S2Trainer:
@@ -37,6 +51,8 @@ class S2Trainer:
         sampler: DeterministicEpochSampler,
         logger: PipelineLogger,
         cursor: TrainingCursor,
+        event_sink: Callable[[dict[str, object]], None] | None = None,
+        cancellation: FileCancellationToken | None = None,
     ) -> None:
         self.config = config
         self.net_g = net_g
@@ -50,6 +66,8 @@ class S2Trainer:
         self.sampler = sampler
         self.logger = logger
         self.cursor = cursor
+        self.event_sink = event_sink
+        self.cancellation = cancellation
 
     @classmethod
     def from_pretrained(
@@ -58,6 +76,8 @@ class S2Trainer:
         *,
         resume_from: Path | None = None,
         logger: PipelineLogger | None = None,
+        event_sink: Callable[[dict[str, object]], None] | None = None,
+        cancellation: FileCancellationToken | None = None,
     ) -> "S2Trainer":
         config.validate()
         random.seed(config.seed)
@@ -107,6 +127,8 @@ class S2Trainer:
             sampler=sampler,
             logger=logger or PipelineLogger(config.output_dir / "training" / "s2" / "events.jsonl"),
             cursor=cursor,
+            event_sink=event_sink,
+            cancellation=cancellation,
         )
 
     def train(self) -> TrainingCursor:
@@ -147,9 +169,12 @@ class S2Trainer:
                     optimizer_step=global_step,
                     metrics=metrics,
                 )
+                self._emit_progress()
+                cancelled = self.cancellation is not None and self.cancellation.requested
                 if (
                     global_step % self.config.checkpoint_every_steps == 0
                     or global_step == self.config.target_optimizer_steps
+                    or cancelled
                 ):
                     destination = checkpoint_path(self.config.output_dir, global_step)
                     save_checkpoint(
@@ -164,6 +189,9 @@ class S2Trainer:
                         cursor=self.cursor,
                     )
                     self.logger.log("s2", "checkpoint", optimizer_step=global_step, metrics={"path": str(destination)})
+                    self._emit_checkpoint(destination)
+                if cancelled:
+                    self.cancellation.raise_if_requested()
                 completed_batch = True
                 if global_step == self.config.target_optimizer_steps:
                     break
@@ -171,3 +199,27 @@ class S2Trainer:
                 raise ValueError("S2 epoch contains no resumable batch")
         cleanup_after_training(self.config.preprocess_dir, True)
         return self.cursor
+
+    def _emit_progress(self) -> None:
+        if self.event_sink is not None:
+            step = self.cursor.global_step
+            self.event_sink(
+                {
+                    "type": "stage_progress",
+                    "stage": "s2",
+                    "message_key": "training.step",
+                    "message_args": {"step": step, "total": self.config.target_optimizer_steps},
+                    "current": step,
+                    "total": self.config.target_optimizer_steps,
+                }
+            )
+
+    def _emit_checkpoint(self, destination: Path) -> None:
+        if self.event_sink is not None:
+            self.event_sink(
+                {
+                    "type": "checkpoint",
+                    "stage": "s2",
+                    "artifacts": [{"type": "checkpoint", "path": str(destination.resolve())}],
+                }
+            )

@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from voice_pipeline.common.logging import PipelineLogger
+from voice_pipeline.module_api.cancellation import FileCancellationToken, ModuleCancelled
 from voice_pipeline.training.s2.checkpoint import TrainingCursor, checkpoint_path
 from voice_pipeline.training.s2.config import S2TrainConfig
 from voice_pipeline.training.s2.data import DeterministicEpochSampler
@@ -210,4 +211,35 @@ def test_checkpoint_failure_does_not_clean(tmp_path: Path, monkeypatch) -> None:
     )
     with pytest.raises(OSError, match="disk full"):
         S2Trainer.from_pretrained(_config(tmp_path)).train()
+    assert "cleanup" not in calls
+
+
+def test_cancellation_after_step_saves_resumable_checkpoint(tmp_path: Path, monkeypatch) -> None:
+    calls: list = []
+    _patch_construction(monkeypatch, calls)
+    monkeypatch.setattr("voice_pipeline.training.s2.trainer.train_s2_step", lambda **kwargs: RESULT)
+    monkeypatch.setattr(
+        "voice_pipeline.training.s2.trainer.cleanup_after_training",
+        lambda *args: calls.append("cleanup"),
+    )
+    marker = tmp_path / "cancel.requested"
+    events = []
+
+    def receive(event):
+        events.append(event)
+        if event["type"] == "stage_progress":
+            marker.touch()
+
+    trainer = S2Trainer.from_pretrained(
+        _config(tmp_path, target=2, interval=2),
+        event_sink=receive,
+        cancellation=FileCancellationToken(marker),
+    )
+
+    with pytest.raises(ModuleCancelled):
+        trainer.train()
+
+    assert trainer.cursor == TrainingCursor(1, 0, 1)
+    assert checkpoint_path(trainer.config.output_dir, 1).is_file()
+    assert [event["type"] for event in events] == ["stage_progress", "checkpoint"]
     assert "cleanup" not in calls

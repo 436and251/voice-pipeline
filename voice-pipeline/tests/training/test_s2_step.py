@@ -119,6 +119,7 @@ def _batch():
 
 
 def _patch_losses(monkeypatch) -> None:
+    monkeypatch.setattr("voice_pipeline.training.s2.step.clip_grad_value_", lambda *args: 0.0)
     monkeypatch.setattr("voice_pipeline.training.s2.step.spec_to_mel_torch", lambda spec, *args: spec[:, :1])
     monkeypatch.setattr("voice_pipeline.training.s2.step.mel_spectrogram_torch", lambda generated, *args, **kwargs: generated.unsqueeze(1))
     monkeypatch.setattr("voice_pipeline.training.s2.step.slice_segments", lambda value, ids, size: value)

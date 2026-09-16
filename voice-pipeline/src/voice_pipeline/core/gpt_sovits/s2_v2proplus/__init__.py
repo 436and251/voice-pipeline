@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from .model import MultiPeriodDiscriminator, SynthesizerTrn
+def build_s2_generator(config: dict[str, object]):
+    from .model import SynthesizerTrn
 
-
-def build_s2_generator(config: dict[str, object]) -> SynthesizerTrn:
     data = config["data"]
     train = config["train"]
     model_config = dict(config["model"])
@@ -16,8 +15,20 @@ def build_s2_generator(config: dict[str, object]) -> SynthesizerTrn:
     )
 
 
-def build_s2_discriminator(*, use_spectral_norm: bool = False) -> MultiPeriodDiscriminator:
+def build_s2_discriminator(*, use_spectral_norm: bool = False):
+    from .model import MultiPeriodDiscriminator
+
     return MultiPeriodDiscriminator(use_spectral_norm=use_spectral_norm, version="v2ProPlus")
+
+
+def __getattr__(name: str):
+    if name not in {"MultiPeriodDiscriminator", "SynthesizerTrn"}:
+        raise AttributeError(name)
+    from . import model
+
+    value = getattr(model, name)
+    globals()[name] = value
+    return value
 
 
 __all__ = [

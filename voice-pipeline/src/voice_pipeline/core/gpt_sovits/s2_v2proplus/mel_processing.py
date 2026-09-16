@@ -1,6 +1,5 @@
 import torch
 import torch.utils.data
-from librosa.filters import mel as librosa_mel_fn
 
 MAX_WAV_VALUE = 32768.0
 
@@ -71,6 +70,8 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False)
 
 
 def spec_to_mel_torch(spec, n_fft, num_mels, sampling_rate, fmin, fmax):
+    from librosa.filters import mel as librosa_mel_fn
+
     global mel_basis
     dtype_device = str(spec.dtype) + "_" + str(spec.device)
     key = "%s-%s-%s-%s-%s-%s" % (dtype_device, n_fft, num_mels, sampling_rate, fmin, fmax)

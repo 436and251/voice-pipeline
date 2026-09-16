@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from voice_pipeline.common.state import RunState
+from voice_pipeline.module_api.cancellation import FileCancellationToken, ModuleCancelled
 from voice_pipeline.pipeline.graph import StageGraph
 from voice_pipeline.profiles.v2proplus import V2PROPLUS
 from voice_pipeline.training.experiment import Experiment
@@ -172,3 +173,23 @@ def test_changed_manifest_prunes_stale_samples_from_stage_indexes(tmp_path):
     pipeline.run(records(2), [])
     pipeline.run(records(1), [])
     assert "s1" not in read_index_ids(tmp_path)
+
+
+def test_cancellation_is_observed_between_preprocess_records(tmp_path):
+    calls = []
+    stage_map = stages(calls)
+    marker = tmp_path / "cancel.requested"
+    original_run = stage_map["text"].run
+
+    def run_then_cancel(record, context):
+        result = original_run(record, context)
+        marker.touch()
+        return result
+
+    stage_map["text"].run = run_then_cancel
+    pipeline = make_pipeline(tmp_path, stage_map)
+
+    with pytest.raises(ModuleCancelled):
+        pipeline.run(records(2), [], cancellation=FileCancellationToken(marker))
+
+    assert calls == [("text", "s0")]

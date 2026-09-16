@@ -11,9 +11,6 @@ from torch.utils.data import Dataset
 
 from voice_pipeline.training.sampler import DeterministicEpochSampler
 
-from voice_pipeline.core.gpt_sovits.s2_v2proplus.mel_processing import spectrogram_torch
-
-
 S2Item = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 
 
@@ -106,6 +103,8 @@ def _load_text(preprocess_dir: Path, sample_id: str) -> torch.Tensor:
 
 
 def _load_wav(preprocess_dir: Path, sample_id: str) -> tuple[torch.Tensor, torch.Tensor]:
+    from voice_pipeline.core.gpt_sovits.s2_v2proplus.mel_processing import spectrogram_torch
+
     path = preprocess_dir / "wav32k" / f"{sample_id}.wav"
     try:
         with wave.open(str(path), "rb") as stream:
