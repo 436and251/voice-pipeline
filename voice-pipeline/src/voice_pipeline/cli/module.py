@@ -67,4 +67,24 @@ def promote(
         raise typer.Exit(code=1) from error
 
 
+@app.command("infer")
+def infer(
+    request: Path = typer.Option(..., "--request", exists=True, dir_okay=False),
+    events_jsonl: bool = typer.Option(False, "--events-jsonl"),
+) -> None:
+    """Run inference with the latest human-promoted model."""
+    if not events_jsonl:
+        typer.echo("Error: --events-jsonl is required", err=True)
+        raise typer.Exit(code=2)
+    from voice_pipeline.module_api.infer import run_module_inference
+
+    try:
+        run_module_inference(
+            request.resolve(), sys.stdout, diagnostics=sys.stderr
+        )
+    except Exception as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+
 __all__ = ["app"]

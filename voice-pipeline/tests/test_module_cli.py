@@ -39,3 +39,33 @@ def test_module_run_keeps_stdout_machine_readable(tmp_path: Path, monkeypatch):
         "job_completed"
     ]
     assert "human diagnostic" in result.stderr
+
+
+def test_module_infer_requires_jsonl_and_keeps_stdout_machine_readable(
+    tmp_path: Path, monkeypatch
+):
+    request = tmp_path / "request.json"
+    request.write_text("{}", encoding="utf-8")
+
+    missing_flag = runner.invoke(app, ["infer", "--request", str(request)])
+    assert missing_flag.exit_code == 2
+    assert "--events-jsonl is required" in missing_flag.stderr
+
+    def fake_run(path, stream, *, diagnostics):
+        assert path == request.resolve()
+        stream.write(json.dumps({"protocol_version": 1, "type": "inference_completed"}) + "\n")
+        diagnostics.write("human diagnostic\n")
+        return tmp_path / "output.wav"
+
+    monkeypatch.setattr(
+        "voice_pipeline.module_api.infer.run_module_inference", fake_run
+    )
+    result = runner.invoke(
+        app, ["infer", "--request", str(request), "--events-jsonl"]
+    )
+
+    assert result.exit_code == 0
+    assert [json.loads(line)["type"] for line in result.stdout.splitlines()] == [
+        "inference_completed"
+    ]
+    assert "human diagnostic" in result.stderr
