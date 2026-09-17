@@ -32,7 +32,7 @@ def materialize_job(job: ModuleJob) -> MaterializedJob:
         "profile": {"name": job.framework},
         "experiment": {"name": job.project_name, "output_root": str(job.output_root)},
         "device": {"device": job.device, "precision": job.precision},
-        "dataset": {"manifest": str(job.dataset_list)},
+        "dataset": {"manifest": str(job.training_data.path)},
         "objective": {
             "training_languages": _training_languages(job),
             "target_languages": ["zh", "ja", "en"],
@@ -130,7 +130,7 @@ def _evaluation_config(job: ModuleJob, values: dict[str, object]) -> dict[str, o
 
 
 def _training_languages(job: ModuleJob) -> list[str]:
-    records = read_manifest_records(job.dataset_list).records
+    records = read_manifest_records(job.training_data.path).records
     present = {record.item.language for record in records}
     languages = [language for language in ("zh", "ja", "en") if language in present]
     if not languages and job.reference is not None:

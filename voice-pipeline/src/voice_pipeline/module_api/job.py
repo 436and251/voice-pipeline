@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import json
 import math
 import operator
@@ -14,11 +13,11 @@ from voice_pipeline.module_api.descriptor import build_descriptor
 _FIELDS = {
     "protocol_version",
     "job_id",
+    "module_id",
     "project_name",
     "project_root",
     "output_root",
-    "dataset_list",
-    "dataset_sha256",
+    "training_data",
     "framework",
     "stages",
     "device",
@@ -28,7 +27,6 @@ _FIELDS = {
     "job_dir",
 }
 _STAGES = ("preprocess", "s2", "s1", "evaluate")
-_SHA256 = re.compile(r"[0-9a-f]{64}")
 _JOB_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 
@@ -41,13 +39,19 @@ class ModuleReference:
 
 
 @dataclass(frozen=True, slots=True)
+class ModuleTrainingData:
+    path: Path
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
 class ModuleJob:
     job_id: str
+    module_id: str
     project_name: str
     project_root: Path
     output_root: Path
-    dataset_list: Path
-    dataset_sha256: str
+    training_data: ModuleTrainingData
     framework: str
     stages: tuple[str, ...]
     device: str
@@ -73,8 +77,13 @@ class ModuleJob:
             raise ValueError(f"missing job field: {', '.join(sorted(missing))}")
 
         protocol_version = payload["protocol_version"]
-        if type(protocol_version) is not int or protocol_version != 1:
-            raise ValueError("protocol_version must be integer 1")
+        if type(protocol_version) is not int or protocol_version != 2:
+            raise ValueError("protocol_version must be integer 2")
+
+        descriptor = build_descriptor()
+        module_id = _nonempty_string(payload["module_id"], "module_id")
+        if module_id != descriptor["module_id"]:
+            raise ValueError(f"unsupported module_id: {module_id}")
 
         job_id = _nonempty_string(payload["job_id"], "job_id")
         if _JOB_ID.fullmatch(job_id) is None:
@@ -84,7 +93,6 @@ class ModuleJob:
             raise ValueError("project_name must contain only letters, numbers, underscores, or hyphens")
         project_root = _absolute_path(payload["project_root"], "project_root")
         output_root = _absolute_path(payload["output_root"], "output_root")
-        dataset_list = _absolute_path(payload["dataset_list"], "dataset_list")
         job_dir = _absolute_path(payload["job_dir"], "job_dir")
 
         if not project_root.is_dir():
@@ -95,20 +103,14 @@ class ModuleJob:
             raise ValueError("job_id must match the job directory name")
         _require_contained(job_dir, project_root, "job_dir")
         _require_contained(output_root, project_root, "output_root")
-        _require_contained(dataset_list, project_root, "dataset_list")
-        if not dataset_list.is_file():
-            raise ValueError(f"dataset_list does not exist: {dataset_list}")
-
-        dataset_sha256 = payload["dataset_sha256"]
-        if not isinstance(dataset_sha256, str) or _SHA256.fullmatch(dataset_sha256) is None:
-            raise ValueError("dataset_sha256 must be 64 lowercase hexadecimal characters")
-        if _sha256(dataset_list) != dataset_sha256:
-            raise ValueError("dataset_sha256 does not match dataset_list")
-
         framework = _nonempty_string(payload["framework"], "framework")
-        frameworks = {item["id"] for item in build_descriptor()["frameworks"]}
-        if framework not in frameworks:
+        framework_data = next(
+            (item for item in descriptor["frameworks"] if item["id"] == framework),
+            None,
+        )
+        if framework_data is None:
             raise ValueError(f"unsupported framework: {framework}")
+        training_data = _training_data(payload["training_data"], framework_data, project_root)
 
         stages = _stages(payload["stages"])
         device = _nonempty_string(payload["device"], "device")
@@ -124,11 +126,11 @@ class ModuleJob:
 
         return cls(
             job_id=job_id,
+            module_id=module_id,
             project_name=project_name,
             project_root=project_root,
             output_root=output_root,
-            dataset_list=dataset_list,
-            dataset_sha256=dataset_sha256,
+            training_data=training_data,
             framework=framework,
             stages=stages,
             device=device,
@@ -157,6 +159,42 @@ def _nonempty_string(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field} must be a non-empty string")
     return value
+
+
+def _training_data(
+    value: object,
+    framework_data: dict[str, object],
+    project_root: Path,
+) -> ModuleTrainingData:
+    if not isinstance(value, dict):
+        raise ValueError("training_data must be an object")
+    fields = {"path", "kind"}
+    unknown = set(value) - fields
+    missing = fields - set(value)
+    if unknown:
+        raise ValueError(f"unknown training_data field: {', '.join(sorted(unknown))}")
+    if missing:
+        raise ValueError(f"missing training_data field: {', '.join(sorted(missing))}")
+
+    declaration = framework_data["training_data"]
+    kind = _nonempty_string(value["kind"], "training_data.kind")
+    expected_kind = declaration["kind"]
+    if kind != expected_kind:
+        raise ValueError(f"training_data.kind must be {expected_kind}")
+    path = _absolute_path(value["path"], "training_data.path")
+    _require_contained(path, project_root, "training_data.path")
+    if kind == "file":
+        if not path.is_file():
+            raise ValueError(f"training_data.path does not exist: {path}")
+        extensions = {extension.casefold() for extension in declaration.get("extensions", [])}
+        if extensions and path.suffix.casefold() not in extensions:
+            raise ValueError(
+                "training_data.path extension must be one of "
+                + ", ".join(sorted(extensions))
+            )
+    elif kind == "directory" and not path.is_dir():
+        raise ValueError(f"training_data.path does not exist: {path}")
+    return ModuleTrainingData(path=path, kind=kind)
 
 
 def _stages(value: object) -> tuple[str, ...]:
@@ -278,12 +316,4 @@ _NUMERIC_CONSTRAINTS = {
 }
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-__all__ = ["ModuleJob", "ModuleReference"]
+__all__ = ["ModuleJob", "ModuleReference", "ModuleTrainingData"]

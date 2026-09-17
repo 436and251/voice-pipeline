@@ -20,7 +20,7 @@ def test_descriptor_is_stable_and_side_effect_free(tmp_path, monkeypatch):
 
     payload = build_descriptor()
 
-    assert payload["protocol_version"] == 1
+    assert payload["protocol_version"] == 2
     assert payload["module_id"] == "gpt-sovits-v2proplus"
     assert payload["frameworks"][0]["id"] == "v2ProPlus"
     assert payload["frameworks"][0]["capabilities"] == [
@@ -29,7 +29,12 @@ def test_descriptor_is_stable_and_side_effect_free(tmp_path, monkeypatch):
         "evaluate",
         "listen",
         "promote",
+        "infer",
     ]
+    assert payload["frameworks"][0]["training_data"] == {
+        "kind": "file",
+        "extensions": [".list"],
+    }
     assert list(tmp_path.iterdir()) == []
 
 

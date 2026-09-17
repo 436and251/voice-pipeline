@@ -23,13 +23,13 @@ def _job_file(tmp_path: Path) -> tuple[Path, Path]:
     job_dir = project / "jobs" / "job-001"
     job_dir.mkdir(parents=True)
     job = {
-        "protocol_version": 1,
+        "protocol_version": 2,
         "job_id": "job-001",
+        "module_id": "gpt-sovits-v2proplus",
         "project_name": "Acane",
         "project_root": str(project.resolve()),
         "output_root": str(output.resolve()),
-        "dataset_list": str(dataset.resolve()),
-        "dataset_sha256": hashlib.sha256(dataset.read_bytes()).hexdigest(),
+        "training_data": {"path": str(dataset.resolve()), "kind": "file"},
         "framework": "v2ProPlus",
         "stages": ["preprocess", "s2", "s1", "evaluate"],
         "device": "cuda:0",

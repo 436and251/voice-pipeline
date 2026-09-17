@@ -10,7 +10,7 @@ def _labels(zh_cn: str, en: str, ja: str) -> dict[str, str]:
 def build_descriptor() -> dict[str, object]:
     """Return the immutable, side-effect-free module handshake payload."""
     return {
-        "protocol_version": 1,
+        "protocol_version": 2,
         "module_id": "gpt-sovits-v2proplus",
         "module_version": __version__,
         "frameworks": [
@@ -23,7 +23,12 @@ def build_descriptor() -> dict[str, object]:
                     "evaluate",
                     "listen",
                     "promote",
+                    "infer",
                 ],
+                "training_data": {
+                    "kind": "file",
+                    "extensions": [".list"],
+                },
                 "fields": [
                     {
                         "key": "preprocess.resume",

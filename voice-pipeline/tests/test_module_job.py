@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,13 +24,13 @@ def job_file(tmp_path: Path) -> Path:
     job_dir.mkdir(parents=True)
     path = job_dir / "job.json"
     payload = {
-        "protocol_version": 1,
+        "protocol_version": 2,
         "job_id": "job-001",
+        "module_id": "gpt-sovits-v2proplus",
         "project_name": "Acane",
         "project_root": str(project_root.resolve()),
         "output_root": str(output_root.resolve()),
-        "dataset_list": str(dataset_list.resolve()),
-        "dataset_sha256": hashlib.sha256(dataset_list.read_bytes()).hexdigest(),
+        "training_data": {"path": str(dataset_list.resolve()), "kind": "file"},
         "framework": "v2ProPlus",
         "stages": ["preprocess", "s2", "s1", "evaluate"],
         "device": "cuda:0",
@@ -62,6 +61,9 @@ def test_job_loads_valid_contract_as_resolved_frozen_value(job_file: Path):
     assert job.job_id == "job-001"
     assert job.project_name == "Acane"
     assert job.project_root == Path(_payload(job_file)["project_root"])
+    assert job.module_id == "gpt-sovits-v2proplus"
+    assert job.training_data.path == Path(_payload(job_file)["training_data"]["path"])
+    assert job.training_data.kind == "file"
     assert job.stages == ("preprocess", "s2", "s1", "evaluate")
     assert job.parameters == {"s2.batch_size": 2, "preprocess.resume": True}
     assert job.reference is not None
@@ -70,12 +72,12 @@ def test_job_loads_valid_contract_as_resolved_frozen_value(job_file: Path):
         job.job_id = "changed"
 
 
-def test_job_requires_matching_dataset_digest(job_file: Path):
+def test_job_strictly_validates_training_data_shape(job_file: Path):
     payload = _payload(job_file)
-    payload["dataset_sha256"] = "0" * 64
+    payload["training_data"]["extra"] = True
     _write(job_file, payload)
 
-    with pytest.raises(ValueError, match="dataset_sha256"):
+    with pytest.raises(ValueError, match="training_data"):
         ModuleJob.load(job_file)
 
 
@@ -91,9 +93,10 @@ def test_job_rejects_output_escape(job_file: Path):
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("protocol_version", 2, "protocol_version"),
+        ("protocol_version", 1, "protocol_version"),
         ("protocol_version", True, "protocol_version"),
-        ("protocol_version", 1.0, "protocol_version"),
+        ("protocol_version", 2.0, "protocol_version"),
+        ("module_id", "other-module", "module_id"),
         ("framework", "unknown", "framework"),
         ("precision", "bf16", "precision"),
         ("stages", ["s1", "s2"], "stages"),
@@ -192,7 +195,7 @@ def test_job_rejects_non_finite_numeric_parameter_without_crashing(job_file: Pat
         ModuleJob.load(job_file)
 
 
-@pytest.mark.parametrize("field", ["project_root", "output_root", "dataset_list", "job_dir"])
+@pytest.mark.parametrize("field", ["project_root", "output_root", "job_dir"])
 def test_job_requires_absolute_paths(job_file: Path, field: str):
     payload = _payload(job_file)
     payload[field] = "relative/path"
@@ -215,11 +218,40 @@ def test_job_rejects_dataset_outside_project(job_file: Path):
     outside = job_file.parents[3] / "outside.list"
     outside.write_text("outside", encoding="utf-8")
     payload = _payload(job_file)
-    payload["dataset_list"] = str(outside.resolve())
-    payload["dataset_sha256"] = hashlib.sha256(outside.read_bytes()).hexdigest()
+    payload["training_data"]["path"] = str(outside.resolve())
     _write(job_file, payload)
 
-    with pytest.raises(ValueError, match="dataset_list"):
+    with pytest.raises(ValueError, match="training_data"):
+        ModuleJob.load(job_file)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda data: data.update(kind="directory"), "training_data"),
+        (lambda data: data.update(path="relative.list"), "training_data.path"),
+    ],
+)
+def test_job_rejects_training_data_that_disagrees_with_descriptor(
+    job_file: Path, change, message: str
+):
+    payload = _payload(job_file)
+    change(payload["training_data"])
+    _write(job_file, payload)
+
+    with pytest.raises(ValueError, match=message):
+        ModuleJob.load(job_file)
+
+
+def test_job_rejects_wrong_training_data_extension(job_file: Path):
+    payload = _payload(job_file)
+    source = Path(payload["training_data"]["path"])
+    wrong = source.with_suffix(".json")
+    wrong.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    payload["training_data"]["path"] = str(wrong)
+    _write(job_file, payload)
+
+    with pytest.raises(ValueError, match="extension"):
         ModuleJob.load(job_file)
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from io import StringIO
 import json
 import os
@@ -30,13 +29,13 @@ def _job_file(tmp_path: Path, stages: list[str]) -> Path:
     job_dir.mkdir(parents=True)
     job_path = job_dir / "job.json"
     payload = {
-        "protocol_version": 1,
+        "protocol_version": 2,
         "job_id": "job-001",
+        "module_id": "gpt-sovits-v2proplus",
         "project_name": "Acane",
         "project_root": str(project.resolve()),
         "output_root": str(output.resolve()),
-        "dataset_list": str(dataset.resolve()),
-        "dataset_sha256": hashlib.sha256(dataset.read_bytes()).hexdigest(),
+        "training_data": {"path": str(dataset.resolve()), "kind": "file"},
         "framework": "v2ProPlus",
         "stages": stages,
         "device": "cuda:0",

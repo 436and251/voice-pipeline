@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import yaml
 
-from voice_pipeline.module_api.job import ModuleJob, ModuleReference
+from voice_pipeline.module_api.job import ModuleJob, ModuleReference, ModuleTrainingData
 from voice_pipeline.module_api.materialize import materialize_job
 from voice_pipeline.pipeline.config import PipelineSpec
 from voice_pipeline.training.config import TrainingConfig
@@ -29,11 +28,11 @@ def _job(tmp_path: Path, *, stages: tuple[str, ...] = ("preprocess", "s2", "s1")
     job_dir.mkdir(parents=True)
     return ModuleJob(
         job_id="job-001",
+        module_id="gpt-sovits-v2proplus",
         project_name="Acane",
         project_root=project_root.resolve(),
         output_root=output_root.resolve(),
-        dataset_list=dataset_list.resolve(),
-        dataset_sha256=hashlib.sha256(dataset_list.read_bytes()).hexdigest(),
+        training_data=ModuleTrainingData(dataset_list.resolve(), "file"),
         framework="v2ProPlus",
         stages=stages,
         device="cuda:0",
@@ -65,7 +64,7 @@ def test_materialize_job_writes_exact_training_and_pipeline_snapshots(tmp_path: 
         "profile": {"name": "v2ProPlus"},
         "experiment": {"name": "Acane", "output_root": str(job.output_root)},
         "device": {"device": "cuda:0", "precision": "fp16"},
-        "dataset": {"manifest": str(job.dataset_list)},
+        "dataset": {"manifest": str(job.training_data.path)},
         "objective": {
             "training_languages": ["ja"],
             "target_languages": ["zh", "ja", "en"],
