@@ -1,0 +1,3 @@
+[module] running job b2449b89-a97d-405b-91fa-917b54e3ccc4
+[module] failed job b2449b89-a97d-405b-91fa-917b54e3ccc4: evaluation.reference.text must be a non-empty string
+Error: evaluation.reference.text must be a non-empty string

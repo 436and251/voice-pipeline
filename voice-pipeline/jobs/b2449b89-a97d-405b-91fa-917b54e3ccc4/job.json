@@ -1,0 +1,36 @@
+{
+  "protocol_version": 2,
+  "job_id": "b2449b89-a97d-405b-91fa-917b54e3ccc4",
+  "module_id": "gpt-sovits-v2proplus",
+  "project_name": "Lucy",
+  "project_root": "D:\\AI-Training\\voice-clone\\voice-pipeline\\voice-pipeline",
+  "output_root": "D:\\AI-Training\\voice-clone\\voice-pipeline\\voice-pipeline\\runs",
+  "training_data": {
+    "path": "D:\\AI-Training\\voice-clone\\train_data\\lucy\\dataset.list",
+    "kind": "file"
+  },
+  "framework": "v2ProPlus",
+  "stages": [
+    "preprocess",
+    "s2",
+    "s1",
+    "evaluate"
+  ],
+  "device": "cuda:0",
+  "precision": "fp16",
+  "parameters": {
+    "preprocess.resume": true,
+    "evaluation.shortlist_size": 3,
+    "s1.batch_size": 2,
+    "s1.target_optimizer_steps": 500,
+    "s2.batch_size": 2,
+    "s2.target_steps": 600,
+    "s2.learning_rate": 0.0001
+  },
+  "reference": {
+    "audio": "D:\\AI-Training\\voice-clone\\train_data\\lucy\\clips\\cv_e153d4bd_0001.wav",
+    "text": null,
+    "language": "ja"
+  },
+  "job_dir": "D:\\AI-Training\\voice-clone\\voice-pipeline\\voice-pipeline\\jobs\\b2449b89-a97d-405b-91fa-917b54e3ccc4"
+}
