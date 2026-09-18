@@ -1512,7 +1512,7 @@ ZH / JA / EN
 
 ```text
 独立使用：用户 → voice-pipeline CLI → 训练 / 评测 / 推理
-统一应用：AudioClone Studio → module protocol v1 → 同一套 pipeline
+统一应用：AudioClone Studio → module protocol v2 → 同一套 pipeline
 ```
 
 模块握手是只读、轻量且无模型加载的：
@@ -1521,15 +1521,41 @@ ZH / JA / EN
 voice-pipeline module describe --json
 ```
 
-宿主根据返回的 `module_id`、`protocol_version`、`frameworks`、三语 `labels`、字段默认值
-和约束生成界面。运行与人工晋升使用两个明确分离的机器命令：
+宿主根据返回的 `module_id`、`protocol_version`、`frameworks`、通用 `training_data`
+描述、三语 `labels`、字段默认值和能力列表生成界面。训练、人工晋升和推理使用三个明确
+分离的机器命令：
 
 ```powershell
 voice-pipeline module run --job D:/workspace/jobs/job-001/job.json --events-jsonl
 voice-pipeline module promote --job D:/workspace/jobs/job-001/job.json --selection candidate_A --events-jsonl
+voice-pipeline module infer --request D:/workspace/jobs/job-001/inference/<request_id>/request.json --events-jsonl
 ```
 
-机器命令的 stdout 只包含一行一个对象的 UTF-8 JSONL 事件；普通诊断写入 stderr，完整
+`module infer` 只接受协议 v2 的请求快照，不从 GUI 参数或环境变量猜测模型与输出路径。
+请求中的模型必须是该 job 事件日志里最新一次成功晋升的模型，模型、TXT 与输出均必须位于
+`project_root` 的安全边界内（外部 TXT 应先由宿主复制成任务快照）：
+
+```json
+{
+  "protocol_version": 2,
+  "request_id": "7a5f...",
+  "project_root": "D:/AudioClone/workspaces/Acane",
+  "project_name": "Acane",
+  "model": "D:/AudioClone/workspaces/Acane/models/Acane",
+  "text": "你好。",
+  "text_file": null,
+  "language": "zh",
+  "device": "cuda:0",
+  "output": "D:/AudioClone/workspaces/Acane/outputs/Acane/gui/20260918-123456.wav"
+}
+```
+
+`text` 与 `text_file` 必须二选一，语言支持 `zh`、`ja`、`en`、`mixed`。这套机器接口不
+替代独立用户 CLI；不接 AudioClone Studio 时，仍按本文前面的
+`voice-pipeline infer synthesize` / `infer batch` 命令直接推理。
+
+job 和请求快照使用协议 v2；机器命令的 stdout 事件仍使用事件协议 v1，一行一个 UTF-8
+JSON 对象。普通诊断写入 stderr，完整
 事件同时追加到 `<job_dir>/events.jsonl`。宿主通过创建 `<job_dir>/cancel.requested`
 请求安全取消，不得强杀正在写 checkpoint 的训练进程。候选 `A/B/C` 只是 GUI 标签，协议
 边界必须传试听 manifest 中的内部 ID（如 `candidate_A`）。完整 job 格式、事件和取消示例
