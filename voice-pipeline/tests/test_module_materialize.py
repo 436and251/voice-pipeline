@@ -143,6 +143,21 @@ def test_materialize_job_binds_evaluation_to_target_reference(tmp_path: Path):
     assert parsed.evaluation.reference.audio == job.reference.audio
 
 
+def test_materialize_job_uses_audio_miner_huggingface_cache(
+    tmp_path: Path, monkeypatch
+):
+    hf_home = tmp_path / "shared-models" / "huggingface"
+    monkeypatch.setenv("HF_HOME", str(hf_home))
+    job = _job(tmp_path, stages=("preprocess", "s2", "s1", "evaluate"))
+
+    result = materialize_job(job)
+    training = yaml.safe_load(result.training_config.read_text(encoding="utf-8"))
+
+    assert training["evaluation"]["models"]["cache_dir"] == str(
+        (hf_home / "hub").resolve()
+    )
+
+
 def test_materialize_job_selects_first_usable_evaluation_reference_from_training_data(
     tmp_path: Path, monkeypatch
 ):

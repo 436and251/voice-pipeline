@@ -47,6 +47,10 @@ Developer Mode 时，推荐把 WavLM 下载到普通目录并将 `speaker` 直�
 speaker: D:/AI-Training/AI-cache/huggingface/hub/wavlm-base-plus-sv
 ```
 
+通过 AudioClone Studio 启动时，训练模块会复用 AudioMiner“模型存储根目录”下的
+`huggingface/hub`，不会另建项目内缓存；独立 CLI 未设置 `HF_HOME` 时仍使用训练配置中的
+`evaluation.models.cache_dir`。
+
 评测时 ASR、WavLM 和候选推理会使用配置中的同一设备。建议 CUDA 显存至少 8 GB，并在
 运行前关闭其他占用显存的程序；显存不足时可改为 `device: cpu`、`precision: fp32`，但
 完整评测会明显变慢。评测按候选顺序执行，不会并行常驻多组 S1/S2 权重。

@@ -3,6 +3,7 @@ from __future__ import annotations
 from array import array
 from dataclasses import dataclass
 import math
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -115,6 +116,12 @@ def _evaluation_config(job: ModuleJob, values: dict[str, object]) -> dict[str, o
     missing = [path for path in suites.values() if not path.is_file()]
     if missing:
         raise ValueError(f"evaluation suite does not exist: {missing[0]}")
+    hf_home = os.environ.get("HF_HOME")
+    cache_dir = (
+        (Path(hf_home).resolve() / "hub")
+        if hf_home
+        else job.project_root / "models" / "evaluators"
+    )
     return {
         "enabled": True,
         "reference": {
@@ -124,7 +131,7 @@ def _evaluation_config(job: ModuleJob, values: dict[str, object]) -> dict[str, o
         },
         "speaker_references": [str(reference.audio)],
         "suites": {language: str(path) for language, path in suites.items()},
-        "models": {"cache_dir": str(job.project_root / "models" / "evaluators")},
+        "models": {"cache_dir": str(cache_dir)},
         "pairing": {
             "s2_keep": 2,
             "shortlist_size": values["evaluation.shortlist_size"],
