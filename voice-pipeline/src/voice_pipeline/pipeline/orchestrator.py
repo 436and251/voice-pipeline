@@ -38,6 +38,14 @@ def execute_stage(
         manifest = read_manifest_records(config.manifest)
         pipeline = build_preprocess_pipeline(config)
         run_options = {"cancellation": cancellation} if cancellation is not None else {}
+        if event_sink is not None:
+            run_options["progress"] = lambda current, total: _emit(
+                event_sink,
+                "stage_progress",
+                "preprocess",
+                current=current,
+                total=total,
+            )
         summary = pipeline.run(manifest.records, manifest.issues, **run_options)
         publish_training_indexes(
             pipeline.context.preprocess_dir,
@@ -78,7 +86,16 @@ def execute_stage(
             raise ValueError("evaluation must be enabled")
         from voice_pipeline.evaluation.pipeline import run_evaluation
 
-        run_evaluation(config.evaluation)
+        options = {}
+        if event_sink is not None:
+            options["progress"] = lambda current, total: _emit(
+                event_sink,
+                "stage_progress",
+                "evaluate",
+                current=current,
+                total=total,
+            )
+        run_evaluation(config.evaluation, **options)
         return
 
     raise ValueError(f"unknown pipeline stage: {stage}")

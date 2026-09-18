@@ -72,6 +72,7 @@ class PreprocessPipeline:
         selected_stage: str | None = None,
         *,
         cancellation: FileCancellationToken | None = None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> PreprocessSummary:
         if cancellation is not None:
             cancellation.raise_if_requested()
@@ -105,7 +106,22 @@ class PreprocessPipeline:
         self._write_quarantine(quarantine_path, quarantine)
         self._check_limit(quarantine, allowed_bad)
 
-        for stage_name in self.graph.topological_order(selected_stage):
+        stage_order = self.graph.topological_order(selected_stage)
+        eligibility_units = int(
+            selected_stage is None and self.eligibility_validator is not None
+        )
+        total_work = len(records) * (len(stage_order) + eligibility_units)
+        completed_work = 0
+
+        def advance_progress() -> None:
+            nonlocal completed_work
+            completed_work += 1
+            if progress is not None and (
+                completed_work % 5 == 0 or completed_work == total_work
+            ):
+                progress(completed_work, total_work)
+
+        for stage_name in stage_order:
             stage = self.stages[stage_name]
             changed = False
             started = False
@@ -113,47 +129,50 @@ class PreprocessPipeline:
             for record in records:
                 if cancellation is not None:
                     cancellation.raise_if_requested()
-                if record.sample_id in quarantine:
-                    continue
-                signature = stage.signature(record, self.context)
-                cached = indexes[stage_name].get(record.sample_id)
-                if cached is not None and self._cache_is_valid(stage, record, cached, signature):
-                    continue
-
-                changed = True
-                if not started:
-                    self._record_stage_start(stage_name)
-                    started = True
-                self._invalidate_downstream(record.sample_id, stage_name, indexes)
                 try:
-                    result = stage.run(record, self.context)
-                except SampleFailure as error:
-                    warnings += 1
-                    quarantine[record.sample_id] = QuarantineEntry(
-                        key=record.sample_id,
-                        line_no=record.line_no,
-                        sample_id=record.sample_id,
-                        audio_path=str(record.item.audio_path),
-                        stage=error.stage,
-                        category=error.category,
-                        message=error.message,
-                    )
-                    self._purge_sample(record.sample_id, indexes)
-                    self._write_indexes(indexes)
-                    self._write_quarantine(quarantine_path, quarantine)
-                    self._check_limit(quarantine, allowed_bad)
-                    continue
+                    if record.sample_id in quarantine:
+                        continue
+                    signature = stage.signature(record, self.context)
+                    cached = indexes[stage_name].get(record.sample_id)
+                    if cached is not None and self._cache_is_valid(stage, record, cached, signature):
+                        continue
 
-                if result.sample_id != record.sample_id:
-                    raise ValueError(
-                        f"stage {stage_name} returned sample {result.sample_id} for {record.sample_id}"
-                    )
-                indexes[stage_name][record.sample_id] = {
-                    "sample_id": record.sample_id,
-                    "signature": signature,
-                    "output_paths": [str(path) for path in result.output_paths],
-                    "metadata": result.metadata,
-                }
+                    changed = True
+                    if not started:
+                        self._record_stage_start(stage_name)
+                        started = True
+                    self._invalidate_downstream(record.sample_id, stage_name, indexes)
+                    try:
+                        result = stage.run(record, self.context)
+                    except SampleFailure as error:
+                        warnings += 1
+                        quarantine[record.sample_id] = QuarantineEntry(
+                            key=record.sample_id,
+                            line_no=record.line_no,
+                            sample_id=record.sample_id,
+                            audio_path=str(record.item.audio_path),
+                            stage=error.stage,
+                            category=error.category,
+                            message=error.message,
+                        )
+                        self._purge_sample(record.sample_id, indexes)
+                        self._write_indexes(indexes)
+                        self._write_quarantine(quarantine_path, quarantine)
+                        self._check_limit(quarantine, allowed_bad)
+                        continue
+
+                    if result.sample_id != record.sample_id:
+                        raise ValueError(
+                            f"stage {stage_name} returned sample {result.sample_id} for {record.sample_id}"
+                        )
+                    indexes[stage_name][record.sample_id] = {
+                        "sample_id": record.sample_id,
+                        "signature": signature,
+                        "output_paths": [str(path) for path in result.output_paths],
+                        "metadata": result.metadata,
+                    }
+                finally:
+                    advance_progress()
 
             if cancellation is not None:
                 cancellation.raise_if_requested()
@@ -168,24 +187,27 @@ class PreprocessPipeline:
             for record in records:
                 if cancellation is not None:
                     cancellation.raise_if_requested()
-                if record.sample_id in quarantine:
-                    continue
                 try:
-                    self.eligibility_validator(record)
-                except (OSError, RuntimeError, ValueError) as error:
-                    eligibility_changed = True
-                    quarantine[record.sample_id] = QuarantineEntry(
-                        key=record.sample_id,
-                        line_no=record.line_no,
-                        sample_id=record.sample_id,
-                        audio_path=str(record.item.audio_path),
-                        stage="training",
-                        category="ineligible",
-                        message=str(error),
-                    )
-                    self._purge_sample(record.sample_id, indexes)
-                    self._write_quarantine(quarantine_path, quarantine)
-                    self._check_limit(quarantine, allowed_bad)
+                    if record.sample_id in quarantine:
+                        continue
+                    try:
+                        self.eligibility_validator(record)
+                    except (OSError, RuntimeError, ValueError) as error:
+                        eligibility_changed = True
+                        quarantine[record.sample_id] = QuarantineEntry(
+                            key=record.sample_id,
+                            line_no=record.line_no,
+                            sample_id=record.sample_id,
+                            audio_path=str(record.item.audio_path),
+                            stage="training",
+                            category="ineligible",
+                            message=str(error),
+                        )
+                        self._purge_sample(record.sample_id, indexes)
+                        self._write_quarantine(quarantine_path, quarantine)
+                        self._check_limit(quarantine, allowed_bad)
+                finally:
+                    advance_progress()
             if cancellation is not None:
                 cancellation.raise_if_requested()
             if eligibility_changed:

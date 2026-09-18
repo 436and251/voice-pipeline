@@ -86,6 +86,22 @@ def test_pipeline_runs_in_dependency_order_and_resumes_completed_samples(tmp_pat
     assert calls == []
 
 
+def test_preprocess_progress_reports_every_five_work_units_and_final_remainder(tmp_path):
+    progress = []
+    pipeline = make_pipeline(
+        tmp_path,
+        stages([]),
+        eligibility_validator=lambda record: None,
+    )
+
+    pipeline.run(records(6), [], progress=lambda current, total: progress.append((current, total)))
+
+    assert progress == [
+        (5, 36), (10, 36), (15, 36), (20, 36),
+        (25, 36), (30, 36), (35, 36), (36, 36),
+    ]
+
+
 def test_one_stage_failure_quarantines_sample_from_every_stage_index(tmp_path):
     calls = []
     pipeline = make_pipeline(tmp_path, stages(calls, failures={"hubert": {"s5"}}))

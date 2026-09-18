@@ -116,9 +116,12 @@ def test_execute_preprocess_runs_full_pipeline_and_publishes_indexes(
         context=SimpleNamespace(preprocess_dir=tmp_path / "run" / "preprocess")
     )
     calls: list[tuple] = []
-    pipeline.run = lambda loaded_records, loaded_issues: calls.append(
-        ("run", loaded_records, loaded_issues)
-    ) or summary
+    def run(loaded_records, loaded_issues, *, progress=None):
+        calls.append(("run", loaded_records, loaded_issues))
+        progress(5, 10)
+        return summary
+
+    pipeline.run = run
     monkeypatch.setattr(
         config_module.PreprocessConfig,
         "from_yaml",
@@ -147,7 +150,10 @@ def test_execute_preprocess_runs_full_pipeline_and_publishes_indexes(
         ),
     )
 
-    orchestrator.execute_stage("preprocess", tmp_path / "train.yaml", tmp_path)
+    events = []
+    orchestrator.execute_stage(
+        "preprocess", tmp_path / "train.yaml", tmp_path, event_sink=events.append
+    )
 
     assert calls == [
         ("config", tmp_path / "train.yaml", tmp_path),
@@ -155,6 +161,9 @@ def test_execute_preprocess_runs_full_pipeline_and_publishes_indexes(
         ("build", config),
         ("run", records, issues),
         ("publish", pipeline.context.preprocess_dir, records, {"two"}),
+    ]
+    assert events == [
+        {"type": "stage_progress", "stage": "preprocess", "current": 5, "total": 10}
     ]
 
 
@@ -257,13 +266,21 @@ def test_execute_evaluate_calls_configured_evaluator(
         "from_yaml",
         classmethod(lambda cls, path, project_root=None: training),
     )
-    monkeypatch.setattr(
-        evaluation_module, "run_evaluation", lambda config: calls.append(config)
+    def evaluate(config, *, progress=None):
+        calls.append(config)
+        progress(1, 2)
+
+    monkeypatch.setattr(evaluation_module, "run_evaluation", evaluate)
+
+    events = []
+    orchestrator.execute_stage(
+        "evaluate", tmp_path / "train.yaml", tmp_path, event_sink=events.append
     )
 
-    orchestrator.execute_stage("evaluate", tmp_path / "train.yaml", tmp_path)
-
     assert calls == [evaluation]
+    assert events == [
+        {"type": "stage_progress", "stage": "evaluate", "current": 1, "total": 2}
+    ]
 
 
 def test_execute_evaluate_rejects_disabled_evaluation(

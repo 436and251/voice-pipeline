@@ -77,6 +77,7 @@ def run_evaluation(
     config: EvaluationConfig,
     *,
     services: EvaluationServices | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> EvaluationOutcome:
     services = services or EvaluationServices()
     evaluation_dir = config.run_dir / "evaluation"
@@ -84,13 +85,27 @@ def run_evaluation(
     config = replace(config, reference=_snapshot_reference(config.reference, evaluation_dir))
     suite = load_evaluation_suite(config)
     s1_refs, s2_refs = discover_checkpoints(config)
+    stage_one = stage_one_pairs(s1_refs[0], s2_refs)
+    retained_capacity = min(config.pairing.s2_keep, len(s2_refs))
+    stage_two_capacity = max(0, len(s1_refs) - 1) * retained_capacity
+    total_work = 1 + len(stage_one) + stage_two_capacity + config.pairing.shortlist_size
+    completed_work = 0
+
+    def advance(count: int = 1) -> None:
+        nonlocal completed_work
+        if count <= 0:
+            return
+        completed_work += count
+        if progress is not None:
+            progress(completed_work, total_work)
+
     asr = services.load_asr(config)
     speaker = services.load_speaker(config)
     centroid = speaker.centroid(config.speaker_references)
+    advance()
 
     evaluations = {}
     pairs = {}
-    stage_one = stage_one_pairs(s1_refs[0], s2_refs)
     for pair in stage_one:
         pairs[pair.key] = pair
         generation = services.generate(config, pair, suite)
@@ -100,6 +115,7 @@ def run_evaluation(
             speaker=speaker,
             speaker_centroid=centroid,
         )
+        advance()
     ranked_s2 = rank_candidates(
         tuple(evaluations[pair.key] for pair in stage_one),
         config.constraints,
@@ -113,6 +129,8 @@ def run_evaluation(
     retained_s2 = tuple(pairs[candidate.pair_key].s2 for candidate in retained)
 
     stage_two = stage_two_pairs(s1_refs, retained_s2)
+    pending_stage_two = tuple(pair for pair in stage_two if pair.key not in evaluations)
+    advance(stage_two_capacity - len(pending_stage_two))
     for pair in stage_two:
         pairs[pair.key] = pair
         if pair.key in evaluations:
@@ -124,6 +142,7 @@ def run_evaluation(
             speaker=speaker,
             speaker_centroid=centroid,
         )
+        advance()
     ranked = rank_candidates(
         tuple(evaluations[pair.key] for pair in stage_two),
         config.constraints,
@@ -134,10 +153,13 @@ def run_evaluation(
     shortlisted = assign_anonymous_ids(ranked, limit=config.pairing.shortlist_size)
     if not shortlisted:
         raise EvaluationError("no candidate passed the final evaluation constraints")
+    advance(config.pairing.shortlist_size - len(shortlisted))
 
     shortlist = _write_shortlist(config, shortlisted, pairs)
     exported = services.export(shortlist, config.run_dir, config.project_root, True)
-    _write_listening(config, suite, shortlisted, exported, services.preview)
+    _write_listening(
+        config, suite, shortlisted, exported, services.preview, progress=advance
+    )
     _remove_work_tree(evaluation_dir / "work", evaluation_dir)
     return EvaluationOutcome(config.run_dir, tuple(candidate.public_id for candidate in shortlisted))
 
@@ -176,7 +198,9 @@ def _write_shortlist(
     return Shortlist.load(config.run_dir, config.project_root)
 
 
-def _write_listening(config, suite, shortlisted, exported, preview) -> None:
+def _write_listening(
+    config, suite, shortlisted, exported, preview, *, progress=None
+) -> None:
     evaluation_dir = config.run_dir / "evaluation"
     destination = evaluation_dir / "listening"
     temporary = evaluation_dir / f".listening.{uuid.uuid4().hex}.tmp"
@@ -204,6 +228,8 @@ def _write_listening(config, suite, shortlisted, exported, preview) -> None:
                     ],
                 }
             )
+            if progress is not None:
+                progress()
         _write_text_atomic(
             temporary / "manifest.json",
             json.dumps({"schema_version": 1, "candidates": entries}, ensure_ascii=False, indent=2) + "\n",

@@ -193,6 +193,18 @@ def test_pipeline_filters_s2_before_crossing_s1_and_exports_shortlist(tmp_path: 
         assert sorted(path.name for path in listening.glob("*.wav")) == ["en.wav", "ja.wav", "zh.wav"]
 
 
+def test_evaluation_reports_monotonic_candidate_progress(tmp_path: Path) -> None:
+    progress = []
+
+    run_evaluation(
+        _config(tmp_path),
+        services=_services([]),
+        progress=lambda current, total: progress.append((current, total)),
+    )
+
+    assert progress == [(current, 9) for current in range(1, 10)]
+
+
 def test_pipeline_snapshots_reference_outside_project_root(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     config = _config(project_root)
