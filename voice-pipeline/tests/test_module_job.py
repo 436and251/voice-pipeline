@@ -214,15 +214,14 @@ def test_job_rejects_wrong_job_directory(job_file: Path):
         ModuleJob.load(job_file)
 
 
-def test_job_rejects_dataset_outside_project(job_file: Path):
+def test_job_accepts_dataset_outside_project_as_read_only_input(job_file: Path):
     outside = job_file.parents[3] / "outside.list"
     outside.write_text("outside", encoding="utf-8")
     payload = _payload(job_file)
     payload["training_data"]["path"] = str(outside.resolve())
     _write(job_file, payload)
 
-    with pytest.raises(ValueError, match="training_data"):
-        ModuleJob.load(job_file)
+    assert ModuleJob.load(job_file).training_data.path == outside.resolve()
 
 
 @pytest.mark.parametrize(
@@ -290,15 +289,16 @@ def test_job_strictly_validates_reference(job_file: Path, change, message: str):
         ModuleJob.load(job_file)
 
 
-def test_job_rejects_reference_audio_outside_project(job_file: Path):
+def test_job_accepts_reference_audio_outside_project_as_read_only_input(job_file: Path):
     outside = job_file.parents[3] / "outside.wav"
     outside.write_bytes(b"outside")
     payload = _payload(job_file)
     payload["reference"]["audio"] = str(outside.resolve())
     _write(job_file, payload)
 
-    with pytest.raises(ValueError, match="reference.audio"):
-        ModuleJob.load(job_file)
+    loaded = ModuleJob.load(job_file)
+    assert loaded.reference is not None
+    assert loaded.reference.audio == outside.resolve()
 
 
 def test_job_rejects_symlink_escape(job_file: Path):

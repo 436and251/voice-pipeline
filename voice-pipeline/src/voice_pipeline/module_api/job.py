@@ -110,7 +110,7 @@ class ModuleJob:
         )
         if framework_data is None:
             raise ValueError(f"unsupported framework: {framework}")
-        training_data = _training_data(payload["training_data"], framework_data, project_root)
+        training_data = _training_data(payload["training_data"], framework_data)
 
         stages = _stages(payload["stages"])
         device = _nonempty_string(payload["device"], "device")
@@ -120,7 +120,6 @@ class ModuleJob:
         parameters = _parameters(payload["parameters"], framework, project_root)
         reference = _reference(
             payload["reference"],
-            project_root,
             required="evaluate" in stages,
         )
 
@@ -164,7 +163,6 @@ def _nonempty_string(value: object, field: str) -> str:
 def _training_data(
     value: object,
     framework_data: dict[str, object],
-    project_root: Path,
 ) -> ModuleTrainingData:
     if not isinstance(value, dict):
         raise ValueError("training_data must be an object")
@@ -182,7 +180,6 @@ def _training_data(
     if kind != expected_kind:
         raise ValueError(f"training_data.kind must be {expected_kind}")
     path = _absolute_path(value["path"], "training_data.path")
-    _require_contained(path, project_root, "training_data.path")
     if kind == "file":
         if not path.is_file():
             raise ValueError(f"training_data.path does not exist: {path}")
@@ -223,7 +220,7 @@ def _parameters(value: object, framework: str, project_root: Path) -> dict[str, 
     return dict(value)
 
 
-def _reference(value: object, project_root: Path, *, required: bool) -> ModuleReference | None:
+def _reference(value: object, *, required: bool) -> ModuleReference | None:
     if value is None:
         if required:
             raise ValueError("reference is required when evaluation is enabled")
@@ -238,7 +235,6 @@ def _reference(value: object, project_root: Path, *, required: bool) -> ModuleRe
     if missing:
         raise ValueError(f"missing reference field: {', '.join(sorted(missing))}")
     audio = _absolute_path(value["audio"], "reference.audio")
-    _require_contained(audio, project_root, "reference.audio")
     if not audio.is_file():
         raise ValueError(f"reference.audio does not exist: {audio}")
     text = value["text"]

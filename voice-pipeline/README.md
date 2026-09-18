@@ -1525,10 +1525,15 @@ voice-pipeline module describe --json
 描述、三语 `labels`、字段默认值和能力列表生成界面。训练、人工晋升和推理使用三个明确
 分离的机器命令：
 
+模块 job 的 `project_root` 是本训练模块的代码与资源根目录；`job_dir`、`output_root`、
+checkpoint、评测和推理产物必须留在该目录内。`training_data.path` 与评测参考音频是外部
+只读输入，可以使用任意现有绝对路径；模块不会向这些素材目录写入缓存。该行为与独立 CLI
+接受外部绝对 `dataset.manifest` 保持一致。
+
 ```powershell
-voice-pipeline module run --job D:/workspace/jobs/job-001/job.json --events-jsonl
-voice-pipeline module promote --job D:/workspace/jobs/job-001/job.json --selection candidate_A --events-jsonl
-voice-pipeline module infer --request D:/workspace/jobs/job-001/inference/<request_id>/request.json --events-jsonl
+voice-pipeline module run --job D:/voice-pipeline/jobs/job-001/job.json --events-jsonl
+voice-pipeline module promote --job D:/voice-pipeline/jobs/job-001/job.json --selection candidate_A --events-jsonl
+voice-pipeline module infer --request D:/voice-pipeline/jobs/job-001/inference/<request_id>/request.json --events-jsonl
 ```
 
 `module infer` 只接受协议 v2 的请求快照，不从 GUI 参数或环境变量猜测模型与输出路径。
@@ -1539,14 +1544,14 @@ voice-pipeline module infer --request D:/workspace/jobs/job-001/inference/<reque
 {
   "protocol_version": 2,
   "request_id": "7a5f...",
-  "project_root": "D:/AudioClone/workspaces/Acane",
+  "project_root": "D:/voice-pipeline",
   "project_name": "Acane",
-  "model": "D:/AudioClone/workspaces/Acane/models/Acane",
+  "model": "D:/voice-pipeline/models/Acane",
   "text": "你好。",
   "text_file": null,
   "language": "zh",
   "device": "cuda:0",
-  "output": "D:/AudioClone/workspaces/Acane/outputs/Acane/gui/20260918-123456.wav"
+  "output": "D:/voice-pipeline/outputs/Acane/gui/20260918-123456.wav"
 }
 ```
 
