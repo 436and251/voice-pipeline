@@ -254,13 +254,12 @@ def test_job_rejects_wrong_training_data_extension(job_file: Path):
         ModuleJob.load(job_file)
 
 
-def test_job_requires_reference_when_evaluation_is_enabled(job_file: Path):
+def test_job_allows_module_to_select_reference_when_evaluation_is_enabled(job_file: Path):
     payload = _payload(job_file)
     payload["reference"] = None
     _write(job_file, payload)
 
-    with pytest.raises(ValueError, match="reference"):
-        ModuleJob.load(job_file)
+    assert ModuleJob.load(job_file).reference is None
 
 
 def test_job_allows_no_reference_without_evaluation(job_file: Path):

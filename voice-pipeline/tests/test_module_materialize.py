@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+import wave
 
 import yaml
 
 from voice_pipeline.module_api.job import ModuleJob, ModuleReference, ModuleTrainingData
-from voice_pipeline.module_api.materialize import materialize_job
+from voice_pipeline.module_api.materialize import _reference_audio_usable, materialize_job
 from voice_pipeline.pipeline.config import PipelineSpec
 from voice_pipeline.training.config import TrainingConfig
 
 
-def _job(tmp_path: Path, *, stages: tuple[str, ...] = ("preprocess", "s2", "s1")) -> ModuleJob:
+def _job(
+    tmp_path: Path,
+    *,
+    stages: tuple[str, ...] = ("preprocess", "s2", "s1"),
+    explicit_reference: bool = True,
+) -> ModuleJob:
     project_root = tmp_path / "project"
     dataset_list = project_root / "dataset" / "dataset.list"
     dataset_list.parent.mkdir(parents=True)
@@ -47,7 +53,7 @@ def _job(tmp_path: Path, *, stages: tuple[str, ...] = ("preprocess", "s2", "s1")
         },
         reference=(
             ModuleReference(reference_audio.resolve(), "参照音声です。", "ja")
-            if "evaluate" in stages
+            if "evaluate" in stages and explicit_reference
             else None
         ),
         job_dir=job_dir.resolve(),
@@ -137,6 +143,43 @@ def test_materialize_job_binds_evaluation_to_target_reference(tmp_path: Path):
     assert parsed.evaluation.reference.audio == job.reference.audio
 
 
+def test_materialize_job_selects_first_usable_evaluation_reference_from_training_data(
+    tmp_path: Path, monkeypatch
+):
+    job = _job(
+        tmp_path,
+        stages=("preprocess", "s2", "s1", "evaluate"),
+        explicit_reference=False,
+    )
+    bad_audio = job.training_data.path.parent / "bad.wav"
+    bad_audio.write_bytes(b"bad")
+    job.training_data.path.write_text(
+        "bad.wav|speaker|ja|不正\nclip.wav|speaker|ja|テスト\n",
+        encoding="utf-8",
+    )
+    checked = []
+
+    def usable(audio: Path):
+        checked.append(audio.name)
+        return audio != bad_audio
+
+    monkeypatch.setattr(
+        "voice_pipeline.module_api.materialize._reference_audio_usable", usable
+    )
+
+    result = materialize_job(job)
+    training = yaml.safe_load(result.training_config.read_text(encoding="utf-8"))
+    expected_audio = (job.training_data.path.parent / "clip.wav").resolve()
+
+    assert training["evaluation"]["reference"] == {
+        "audio": str(expected_audio),
+        "text": "テスト",
+        "language": "ja",
+    }
+    assert training["evaluation"]["speaker_references"] == [str(expected_audio)]
+    assert checked == ["bad.wav", "clip.wav"]
+
+
 def test_materialize_job_is_byte_deterministic_and_leaves_no_temporary_files(tmp_path: Path):
     job = _job(tmp_path)
 
@@ -152,3 +195,20 @@ def test_materialize_job_is_byte_deterministic_and_leaves_no_temporary_files(tmp
         "pipeline.yaml",
         "train.yaml",
     ]
+
+
+def test_reference_audio_probe_checks_decode_and_duration(tmp_path: Path):
+    valid = tmp_path / "valid.wav"
+    too_short = tmp_path / "short.wav"
+    corrupt = tmp_path / "corrupt.wav"
+    for path, seconds in ((valid, 3), (too_short, 2)):
+        with wave.open(str(path), "wb") as stream:
+            stream.setnchannels(1)
+            stream.setsampwidth(2)
+            stream.setframerate(32_000)
+            stream.writeframes(b"\0\0" * (32_000 * seconds))
+    corrupt.write_bytes(b"not audio")
+
+    assert _reference_audio_usable(valid)
+    assert not _reference_audio_usable(too_short)
+    assert not _reference_audio_usable(corrupt)

@@ -31,11 +31,7 @@ def build_reference_condition(
     device: torch.device,
     dtype: torch.dtype,
 ) -> ReferenceCondition:
-    waveform = load_audio_32k(audio_path)
-    if waveform.ndim != 1 or not torch.isfinite(waveform).all():
-        raise ValueError("reference audio must decode to a finite mono waveform")
-    if not 3 * 32_000 <= waveform.numel() <= 10 * 32_000:
-        raise ValueError("reference audio must be between 3 and 10 seconds")
+    waveform = validate_reference_audio(audio_path)
 
     waveform = waveform.float()
     conditioning_waveform = waveform
@@ -69,4 +65,13 @@ def build_reference_condition(
     return ReferenceCondition(prompt_semantic, spectrogram, speaker_embedding, prompt_frontend)
 
 
-__all__ = ["ReferenceCondition", "build_reference_condition"]
+def validate_reference_audio(audio_path: str | Path) -> torch.Tensor:
+    waveform = load_audio_32k(audio_path)
+    if waveform.ndim != 1 or not torch.isfinite(waveform).all():
+        raise ValueError("reference audio must decode to a finite mono waveform")
+    if not 3 * 32_000 <= waveform.numel() <= 10 * 32_000:
+        raise ValueError("reference audio must be between 3 and 10 seconds")
+    return waveform
+
+
+__all__ = ["ReferenceCondition", "build_reference_condition", "validate_reference_audio"]

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from array import array
 from dataclasses import dataclass
+import math
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 
 import yaml
 
 from voice_pipeline.module_api.descriptor import build_descriptor
-from voice_pipeline.module_api.job import ModuleJob
+from voice_pipeline.module_api.job import ModuleJob, ModuleReference
 from voice_pipeline.pipeline.config import PipelineSpec
 from voice_pipeline.training.config import TrainingConfig
 from voice_pipeline.training.manifest import read_manifest_records
@@ -103,8 +107,7 @@ def _s1_config(job: ModuleJob, values: dict[str, object]) -> dict[str, object]:
 def _evaluation_config(job: ModuleJob, values: dict[str, object]) -> dict[str, object]:
     if "evaluate" not in job.stages:
         return {"enabled": False}
-    if job.reference is None:
-        raise ValueError("evaluation requires a target reference")
+    reference = job.reference or _reference_from_training_data(job)
     suites = {
         language: job.project_root / "configs" / "eval" / f"{language}.txt"
         for language in ("zh", "ja", "en", "mixed")
@@ -115,11 +118,11 @@ def _evaluation_config(job: ModuleJob, values: dict[str, object]) -> dict[str, o
     return {
         "enabled": True,
         "reference": {
-            "audio": str(job.reference.audio),
-            "text": job.reference.text,
-            "language": job.reference.language,
+            "audio": str(reference.audio),
+            "text": reference.text,
+            "language": reference.language,
         },
-        "speaker_references": [str(job.reference.audio)],
+        "speaker_references": [str(reference.audio)],
         "suites": {language: str(path) for language, path in suites.items()},
         "models": {"cache_dir": str(job.project_root / "models" / "evaluators")},
         "pairing": {
@@ -127,6 +130,44 @@ def _evaluation_config(job: ModuleJob, values: dict[str, object]) -> dict[str, o
             "shortlist_size": values["evaluation.shortlist_size"],
         },
     }
+
+
+def _reference_from_training_data(job: ModuleJob) -> ModuleReference:
+    records = read_manifest_records(job.training_data.path).records
+    for record in records:
+        item = record.item
+        if item.language not in {"zh", "ja", "en"}:
+            continue
+        if not _reference_audio_usable(item.audio_path):
+            continue
+        return ModuleReference(item.audio_path, item.text, item.language)
+    raise ValueError(
+        "evaluation requires at least one decodable 3-10 second zh, ja, or en training sample"
+    )
+
+
+def _reference_audio_usable(path: Path) -> bool:
+    try:
+        process = subprocess.run(
+            [
+                "ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
+                "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1",
+                "-ar", "32000", "-",
+            ],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    if process.returncode or len(process.stdout) % 4:
+        return False
+    samples = array("f")
+    samples.frombytes(process.stdout)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return 3 * 32_000 <= len(samples) <= 10 * 32_000 and all(
+        math.isfinite(sample) for sample in samples
+    )
 
 
 def _training_languages(job: ModuleJob) -> list[str]:

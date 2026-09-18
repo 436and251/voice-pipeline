@@ -118,10 +118,7 @@ class ModuleJob:
         if precision not in {"fp16", "fp32"}:
             raise ValueError(f"unsupported precision: {precision}")
         parameters = _parameters(payload["parameters"], framework, project_root)
-        reference = _reference(
-            payload["reference"],
-            required="evaluate" in stages,
-        )
+        reference = _reference(payload["reference"])
 
         return cls(
             job_id=job_id,
@@ -220,10 +217,8 @@ def _parameters(value: object, framework: str, project_root: Path) -> dict[str, 
     return dict(value)
 
 
-def _reference(value: object, *, required: bool) -> ModuleReference | None:
+def _reference(value: object) -> ModuleReference | None:
     if value is None:
-        if required:
-            raise ValueError("reference is required when evaluation is enabled")
         return None
     if not isinstance(value, dict):
         raise ValueError("reference must be an object")
