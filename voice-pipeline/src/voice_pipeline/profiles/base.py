@@ -6,6 +6,7 @@ class ModelProfile:
     name: str
     sample_rate: int
     semantic_frame_rate: str
+    max_semantic_tokens: int
     requires_sv: bool
     s1_relative_path: str
     s2g_relative_path: str

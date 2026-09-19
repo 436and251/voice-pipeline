@@ -4,6 +4,7 @@ V2PROPLUS = ModelProfile(
     name="v2ProPlus",
     sample_rate=32000,
     semantic_frame_rate="25hz",
+    max_semantic_tokens=1500,
     requires_sv=True,
     s1_relative_path="models/pretrained/v2proplus/s1/s1v3.ckpt",
     s2g_relative_path="models/pretrained/v2proplus/s2/s2Gv2ProPlus.pth",

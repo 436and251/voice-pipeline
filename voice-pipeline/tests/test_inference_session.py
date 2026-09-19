@@ -175,7 +175,7 @@ def test_session_loads_once_caches_reference_and_synthesizes(monkeypatch, tmp_pa
                 "top_k": 5,
                 "top_p": 1.0,
                 "temperature": 1.0,
-                "early_stop_num": 2850,
+                "early_stop_num": 1500,
                 "repetition_penalty": 1.35,
             }
             return torch.tensor([[99, 100, 101]]), 2
@@ -264,6 +264,12 @@ def test_session_loads_once_caches_reference_and_synthesizes(monkeypatch, tmp_pa
     assert first.waveform.dtype == np.float32
     assert first.waveform.tolist() == [0.0, 1.0, -1.0]
     assert np.array_equal(first.waveform, second.waveform)
+
+
+def test_v2proplus_declares_its_semantic_generation_limit():
+    from voice_pipeline.profiles.v2proplus import V2PROPLUS
+
+    assert V2PROPLUS.max_semantic_tokens == 1500
 
 
 def test_synthesize_validates_language_seed_and_decoding_parameters():

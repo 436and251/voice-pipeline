@@ -36,6 +36,7 @@ class InferenceSession:
         device: torch.device,
         dtype: torch.dtype,
         sample_rate: int,
+        max_semantic_tokens: int = 1500,
     ) -> None:
         self.s1 = s1
         self.s2 = s2
@@ -45,6 +46,7 @@ class InferenceSession:
         self.device = device
         self.dtype = dtype
         self.sample_rate = sample_rate
+        self.max_semantic_tokens = max_semantic_tokens
         self._lock = threading.Lock()
 
     @classmethod
@@ -126,6 +128,7 @@ class InferenceSession:
             device=device,
             dtype=dtype,
             sample_rate=profile.sample_rate,
+            max_semantic_tokens=profile.max_semantic_tokens,
         )
 
     def synthesize(
@@ -157,7 +160,7 @@ class InferenceSession:
                 top_p=top_p,
                 temperature=temperature,
                 repetition_penalty=repetition_penalty,
-                early_stop_num=57 * 50,
+                early_stop_num=self.max_semantic_tokens,
             )
             waveform = decode_waveform(
                 semantic,

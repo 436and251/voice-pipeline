@@ -170,6 +170,9 @@ def run_module_inference(
             request.text,
             request.language,
             request.output,
+            progress=lambda current, total: emitter.emit(
+                "inference_progress", current=current, total=total
+            ),
         )
         output = Path(result.output_path).resolve()
         if output != request.output or not output.is_file():

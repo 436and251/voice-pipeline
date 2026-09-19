@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import uuid
+from collections.abc import Callable
 
 import numpy as np
 
@@ -70,6 +71,7 @@ def run_synthesis_job(
     repetition_penalty: float = 1.35,
     noise_scale: float = 0.5,
     speed: float = 1.0,
+    progress: Callable[[int, int], None] | None = None,
 ) -> JobResult:
     if type(overwrite) is not bool:
         raise ValueError("overwrite must be boolean")
@@ -144,6 +146,9 @@ def run_synthesis_job(
     if not isinstance(entries, list) or len(entries) != len(chunks):
         raise ValueError("invalid inference manifest; use --overwrite")
 
+    if progress is not None:
+        progress(0, len(entries))
+
     generated = 0
     resumed = 0
     for index, (chunk, entry) in enumerate(zip(chunks, entries, strict=True)):
@@ -160,6 +165,8 @@ def run_synthesis_job(
         chunk_path = work_dir / expected_relative
         if entry.get("status") == "completed" and _matches_hash(chunk_path, entry.get("sha256")):
             resumed += 1
+            if progress is not None:
+                progress(index + 1, len(entries))
             continue
         result = session.synthesize(
             chunk,
@@ -178,6 +185,8 @@ def run_synthesis_job(
         entry.update(status="completed", sha256=_sha256(chunk_path))
         _write_json_atomic(manifest_path, manifest)
         generated += 1
+        if progress is not None:
+            progress(index + 1, len(entries))
 
     final = manifest.get("final")
     if generated == 0 and isinstance(final, dict) and final.get("status") == "completed":

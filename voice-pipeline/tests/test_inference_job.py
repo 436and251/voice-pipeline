@@ -97,6 +97,23 @@ def test_job_writes_manifest_resumes_and_repairs_only_bad_chunks(tmp_path: Path)
     assert (complete.generated_chunks, complete.resumed_chunks) == (0, 3)
 
 
+def test_job_reports_real_chunk_progress(tmp_path: Path):
+    session = FakeSession()
+    output = resolve_output_path(tmp_path, session.identity.model_name, Path("progress.wav"))
+    progress = []
+
+    run_synthesis_job(
+        session,
+        "aa。bb。cc。",
+        "zh",
+        output,
+        max_chars=3,
+        progress=lambda current, total: progress.append((current, total)),
+    )
+
+    assert progress == [(0, 3), (1, 3), (2, 3), (3, 3)]
+
+
 @pytest.mark.parametrize(
     "changed",
     [

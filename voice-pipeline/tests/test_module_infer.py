@@ -199,8 +199,11 @@ def test_run_module_inference_reuses_runtime_and_emits_jsonl(tmp_path, monkeypat
         calls.append(("load", path, device))
         return session
 
-    def run(loaded, text, language, output_path):
+    def run(loaded, text, language, output_path, *, progress):
         calls.append(("run", loaded, text, language, output_path))
+        progress(0, 2)
+        progress(1, 2)
+        progress(2, 2)
         output_path.parent.mkdir(parents=True)
         output_path.write_bytes(b"wav")
         return JobResult(output_path, 1, 0)
@@ -218,9 +221,13 @@ def test_run_module_inference_reuses_runtime_and_emits_jsonl(tmp_path, monkeypat
     ]
     events = [json.loads(line) for line in stream.getvalue().splitlines()]
     assert [event["type"] for event in events] == [
-        "inference_started", "artifact", "inference_completed"
+        "inference_started", "inference_progress", "inference_progress",
+        "inference_progress", "artifact", "inference_completed"
     ]
-    assert events[1]["artifacts"] == [
+    assert [(event["current"], event["total"]) for event in events[1:4]] == [
+        (0, 2), (1, 2), (2, 2)
+    ]
+    assert events[4]["artifacts"] == [
         {"type": "inference_audio", "path": str(output.resolve())}
     ]
     assert "completed" in diagnostics.getvalue()
@@ -240,7 +247,7 @@ def test_runtime_failure_emits_failure_and_preserves_request(tmp_path, monkeypat
     monkeypatch.setattr(
         infer_module,
         "run_synthesis_job",
-        lambda *_: (_ for _ in ()).throw(RuntimeError("synthesis failed")),
+        lambda *_, **__: (_ for _ in ()).throw(RuntimeError("synthesis failed")),
     )
     stream = StringIO()
 

@@ -7,7 +7,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torchmetrics.classification import MulticlassAccuracy
-from tqdm import tqdm
 
 from .utils import (
     dpo_loss,
@@ -530,7 +529,8 @@ class Text2SemanticDecoder(nn.Module):
         x_len = x.shape[1]
         x_attn_mask = torch.zeros((x_len, x_len), dtype=torch.bool)
         stop = False
-        for _ in tqdm(range(1500)):
+        max_steps = early_stop_num if early_stop_num > 0 else 1500
+        for _ in range(max_steps):
             y_emb = self.ar_audio_embedding(y)
             y_pos = self.ar_audio_position(y_emb)
             # x 和逐渐增长的 y 一起输入给模型
@@ -698,7 +698,8 @@ class Text2SemanticDecoder(nn.Module):
         y_list = [None] * y.shape[0]
         batch_idx_map = list(range(y.shape[0]))
         idx_list = [None] * y.shape[0]
-        for idx in tqdm(range(1500)):
+        max_steps = early_stop_num if early_stop_num > 0 else 1500
+        for idx in range(max_steps):
             if idx == 0:
                 xy_dec, k_cache, v_cache = self.t2s_transformer.process_prompt(xy_pos, attn_mask, None)
             else:
@@ -746,7 +747,7 @@ class Text2SemanticDecoder(nn.Module):
                         k_cache[i] = torch.index_select(k_cache[i], dim=0, index=reserved_idx_of_batch_for_y)
                         v_cache[i] = torch.index_select(v_cache[i], dim=0, index=reserved_idx_of_batch_for_y)
 
-            if (early_stop_num != -1 and (y.shape[1] - prefix_len) > early_stop_num) or idx == 1499:
+            if (early_stop_num != -1 and (y.shape[1] - prefix_len) > early_stop_num) or idx == max_steps - 1:
                 print("use early stop num:", early_stop_num)
                 stop = True
                 for i, batch_index in enumerate(batch_idx_map):
@@ -773,7 +774,7 @@ class Text2SemanticDecoder(nn.Module):
         if None in idx_list:
             for i in range(x.shape[0]):
                 if idx_list[i] is None:
-                    idx_list[i] = 1500 - 1  ###如果没有生成到EOS，就用最大长度代替
+                    idx_list[i] = max_steps - 1  ###如果没有生成到EOS，就用最大长度代替
 
         if ref_free:
             return y_list, [0] * x.shape[0]
@@ -886,7 +887,8 @@ class Text2SemanticDecoder(nn.Module):
 
         token_counter = 0
         curr_ptr = prefix_len
-        for idx in tqdm(range(1500)):
+        max_steps = early_stop_num if early_stop_num > 0 else 1500
+        for idx in range(max_steps):
             token_counter+=1
             if xy_attn_mask is not None:
                 xy_dec, k_cache, v_cache = self.t2s_transformer.process_prompt(xy_pos, xy_attn_mask, None)
@@ -915,7 +917,7 @@ class Text2SemanticDecoder(nn.Module):
                 y=y[:, :-1]
                 token_counter -= 1
 
-            if idx == 1499:
+            if idx == max_steps - 1:
                 stop = True
 
             if stop:
