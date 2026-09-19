@@ -87,7 +87,10 @@ def run_evaluation(
     s1_refs, s2_refs = discover_checkpoints(config)
     stage_one = stage_one_pairs(s1_refs[0], s2_refs)
     retained_capacity = min(config.pairing.s2_keep, len(s2_refs))
-    stage_two_capacity = max(0, len(s1_refs) - 1) * retained_capacity
+    trained_s1 = s1_refs[1:][-3:]
+    if not trained_s1:
+        raise EvaluationError("no trained S1 checkpoint is available for evaluation")
+    stage_two_capacity = len(trained_s1) * retained_capacity
     total_work = 1 + len(stage_one) + stage_two_capacity + config.pairing.shortlist_size
     completed_work = 0
 
@@ -128,7 +131,7 @@ def run_evaluation(
         raise EvaluationError("no S2 candidate passed the evaluation constraints")
     retained_s2 = tuple(pairs[candidate.pair_key].s2 for candidate in retained)
 
-    stage_two = stage_two_pairs(s1_refs, retained_s2)
+    stage_two = stage_two_pairs(trained_s1, retained_s2)
     pending_stage_two = tuple(pair for pair in stage_two if pair.key not in evaluations)
     advance(stage_two_capacity - len(pending_stage_two))
     for pair in stage_two:

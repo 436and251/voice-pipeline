@@ -27,6 +27,14 @@ class TextChunker:
         return chunks
 
     def _split(self, text: str, level: int) -> list[str]:
+        if level == 0:
+            sentences = _split_at_punctuation(text, _PUNCTUATION_LEVELS[0])
+            if len(sentences) > 1:
+                return [
+                    chunk
+                    for sentence in sentences
+                    for chunk in self._split(sentence, 1)
+                ]
         if len(text) <= self.max_chars:
             return [text]
         if level == len(_PUNCTUATION_LEVELS):

@@ -183,9 +183,9 @@ def test_pipeline_filters_s2_before_crossing_s1_and_exports_shortlist(tmp_path: 
 
     assert seen == [(None, None), (None, 100), (None, 200), (100, 100), (200, 100)]
     shortlist = Shortlist.load(outcome.run_dir, tmp_path)
-    assert [candidate.id for candidate in shortlist.candidates] == ["candidate_A", "candidate_B", "candidate_C"]
+    assert [candidate.id for candidate in shortlist.candidates] == ["candidate_A", "candidate_B"]
     assert [candidate.s1.name for candidate in shortlist.candidates] == [
-        "step-00000100.pt", "step-00000200.pt", "s1v3.ckpt"
+        "step-00000100.pt", "step-00000200.pt"
     ]
     for candidate in shortlist.candidates:
         ModelBundle.load(outcome.run_dir / "export" / "candidates" / candidate.id)
@@ -203,6 +203,29 @@ def test_evaluation_reports_monotonic_candidate_progress(tmp_path: Path) -> None
     )
 
     assert progress == [(current, 9) for current in range(1, 10)]
+
+
+def test_evaluation_crosses_only_the_last_three_trained_s1_checkpoints(tmp_path: Path) -> None:
+    config = replace(
+        _config(tmp_path), pairing=EvaluationPairing(s2_keep=2, shortlist_size=3)
+    )
+    directory = config.run_dir / "training" / "s1" / "checkpoints"
+    for step in (300, 400, 500):
+        torch.save(
+            {
+                "format_version": 1,
+                "profile": "v2ProPlus",
+                "optimizer_step": step,
+                "model": {"x": torch.ones(1)},
+            },
+            directory / f"step-{step:08d}.pt",
+        )
+    seen = []
+
+    run_evaluation(config, services=_services(seen))
+
+    crossed_s1 = [s1 for s1, s2 in seen if s1 is not None]
+    assert crossed_s1 == [300, 400, 500, 300, 400, 500]
 
 
 def test_pipeline_snapshots_reference_outside_project_root(tmp_path: Path) -> None:

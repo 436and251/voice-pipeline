@@ -31,6 +31,20 @@ def test_paragraphs_are_never_merged():
     assert TextChunker("zh").chunk("第一段。\n\n第二段。") == ["第一段。", "第二段。"]
 
 
+def test_japanese_sentences_split_before_hard_limit_without_losing_inner_pauses():
+    text = (
+        "ふーん、こんなもつけちゃって、面白い。"
+        "乗ってみませんか？"
+        "両親があなたをこんなに立派に育ててくれたことに感謝すべきですよ。"
+    )
+
+    assert TextChunker("ja").chunk(text) == [
+        "ふーん、こんなもつけちゃって、面白い。",
+        "乗ってみませんか？",
+        "両親があなたをこんなに立派に育ててくれたことに感謝すべきですよ。",
+    ]
+
+
 def test_english_decimal_point_is_not_a_sentence_boundary():
     text = "a" * 250 + "3.14" + "b" * 250 + "."
     chunks = TextChunker("en").chunk(text)
