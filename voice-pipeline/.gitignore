@@ -1,6 +1,7 @@
 /models/
 /runs/
 /docs/
+/jobs/
 /outputs/
 __pycache__/
 .pytest_cache/
@@ -8,4 +9,3 @@ __pycache__/
 *.pyo
 *.egg-info/
 .venv/
-s
