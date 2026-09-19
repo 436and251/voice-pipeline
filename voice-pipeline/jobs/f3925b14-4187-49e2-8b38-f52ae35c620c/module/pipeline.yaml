@@ -1,7 +1,0 @@
-schema_version: 1
-config: jobs/f3925b14-4187-49e2-8b38-f52ae35c620c/module/train.yaml
-stages:
-- preprocess
-- s2
-- s1
-- evaluate
